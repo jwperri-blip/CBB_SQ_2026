@@ -131,11 +131,28 @@ _CALENDAR_STATE_JS = r"""
 _CLICK_NAV_JS = r"""
 (dir) => {
   const visible = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const re = dir === 'prev' ? /prev|previous|back/i : /next|forward/i;
-  for (const e of document.querySelectorAll('button, [role="button"]')) {
-    const label = [e.getAttribute('aria-label'), e.getAttribute('name'), e.getAttribute('title'),
-                   typeof e.className === 'string' ? e.className : ''].join(' ');
-    if (visible(e) && re.test(label)) { e.click(); return true; }
+  // accessible names: "Go to the Previous Month", "Next month", ...
+  const labelRe = dir === 'prev' ? /prev|previous|back|earlier/i : /next|forward|later/i;
+  // class names need whole words: Tailwind's "bg-background" must not read as "back"
+  const classRe = dir === 'prev' ? /(^|[^a-z])prev(ious)?([^a-z]|$)/i : /(^|[^a-z])next([^a-z]|$)/i;
+  const label = (e) => [e.getAttribute('aria-label'), e.getAttribute('name'), e.getAttribute('title')].join(' ');
+  const cls = (e) => e.getAttribute('class') || '';
+  const isDay = (e) => /^\d{1,2}$/.test((e.textContent || '').trim());
+  // search outward from the calendar's "August 2026" caption, so page buttons never win
+  const capRe = /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i;
+  let caption = null;
+  for (const e of document.querySelectorAll('body *')) {
+    if (e.children.length === 0 && visible(e) && capRe.test((e.textContent || '').trim())) { caption = e; break; }
+  }
+  const roots = [];
+  for (let a = caption && caption.parentElement; a && a !== document.body; a = a.parentElement) roots.push(a);
+  roots.push(document.body);
+  for (const root of roots) {
+    const btns = [...root.querySelectorAll('button, [role="button"]')].filter((b) => visible(b) && !isDay(b));
+    const hit = btns.find((b) => labelRe.test(label(b))) || btns.find((b) => classRe.test(cls(b)));
+    if (hit) { hit.click(); return true; }
+    // unlabeled arrows either side of the caption
+    if (root !== document.body && btns.length === 2) { btns[dir === 'prev' ? 0 : 1].click(); return true; }
   }
   return false;
 }

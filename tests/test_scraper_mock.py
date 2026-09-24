@@ -26,6 +26,7 @@ def make_settings(tmp_path, url, password=PASSWORD, **over):
     "/scorecenter?date={date}",      # date in the URL
     "/scorecenter",                  # popup calendar date picker
     "/scorecenter?picker=input",     # typed date input
+    "/scorecenter?picker=shadcn&date=2026-09-24",  # shadcn calendar opening months away
 ])
 def test_collect_all_date_modes(tmp_path, mock_site, path):
     s = make_settings(tmp_path, mock_site + path)

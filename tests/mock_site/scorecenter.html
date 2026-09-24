@@ -75,8 +75,14 @@ function renderToolbar() {
     });
     bar.append(inp);
   } else {
-    const btn = el('button', {type: 'button', 'aria-haspopup': 'dialog'}, el('span', {}, '\u{1F4C5} '), mdy(current));
-    btn.addEventListener('click', () => openCalendar(bar));
+    // picker=shadcn mimics the real site's shadcn/ui calendar: Tailwind classes such as
+    // "bg-background" on every button, and a trigger that toggles the popup shut
+    const cls = picker === 'shadcn' ? {class: 'inline-flex border bg-background hover:bg-accent'} : {};
+    const btn = el('button', {type: 'button', 'aria-haspopup': 'dialog', ...cls}, el('span', {}, '\u{1F4C5} '), mdy(current));
+    btn.addEventListener('click', () => {
+      const open = bar.querySelector('.popover');
+      if (open && picker === 'shadcn') open.remove(); else openCalendar(bar);
+    });
     bar.append(btn);
   }
   bar.append(el('input', {type: 'text', placeholder: 'Search by Team'}));
@@ -87,8 +93,13 @@ function openCalendar(bar) {
   const pop = el('div', {class: 'popover', role: 'dialog'});
   const draw = () => {
     pop.innerHTML = '';
-    const prev = el('button', {name: 'previous-month', 'aria-label': 'Go to previous month'}, '<');
-    const next = el('button', {name: 'next-month', 'aria-label': 'Go to next month'}, '>');
+    const shadcn = picker === 'shadcn';
+    const prev = shadcn
+      ? el('button', {class: 'rdp-button_previous border bg-background', 'aria-label': 'Go to the Previous Month'}, '<')
+      : el('button', {name: 'previous-month', 'aria-label': 'Go to previous month'}, '<');
+    const next = shadcn
+      ? el('button', {class: 'rdp-button_next border bg-background', 'aria-label': 'Go to the Next Month'}, '>')
+      : el('button', {name: 'next-month', 'aria-label': 'Go to next month'}, '>');
     prev.onclick = () => { m -= 1; if (m < 1) { m = 12; y -= 1; } draw(); };
     next.onclick = () => { m += 1; if (m > 12) { m = 1; y += 1; } draw(); };
     pop.append(el('div', {class: 'cap'}, prev, el('div', {role: 'presentation'}, `${MONTHS[m - 1]} ${y}`), next));
