@@ -189,9 +189,7 @@ class Scraper:
 
     # ------------------------------------------------------------ lifecycle
     def __enter__(self) -> "Scraper":
-        from playwright.sync_api import sync_playwright
-
-        self._pw = sync_playwright().start()
+        self._pw = self._start_playwright()
         self.settings.profile_dir.mkdir(parents=True, exist_ok=True)
         kwargs = dict(headless=self.headless, viewport={"width": 1600, "height": 1000})
         if self.settings.browser_channel:
@@ -201,6 +199,20 @@ class Scraper:
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.page.on("response", self._on_response)
         return self
+
+    def _start_playwright(self, attempts: int = 5):
+        """Start Playwright's Node driver, retrying the intermittent startup crash
+        ("Connection closed while reading from the driver") seen on some Macs."""
+        from playwright.sync_api import sync_playwright
+
+        for attempt in range(1, attempts + 1):
+            try:
+                return sync_playwright().start()
+            except Exception as exc:
+                if "Connection closed" not in str(exc) or attempt == attempts:
+                    raise
+                self.log(f"Playwright driver failed to start (try {attempt}/{attempts}); retrying...")
+                time.sleep(attempt)
 
     def __exit__(self, *exc) -> None:
         try:
