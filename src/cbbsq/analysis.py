@@ -215,9 +215,10 @@ def trending(tg: pd.DataFrame, *, window: int = 5, min_games: int = 8) -> pd.Dat
     return out.sort_values("delta_net", ascending=False)
 
 
-def luck_table(tg: pd.DataFrame, *, min_games: int = 5) -> pd.DataFrame:
-    """Teams whose results beat (or trail) their shot quality the most - regression candidates."""
-    s = team_summary(tg, min_games=min_games)
+def luck_table(tg: pd.DataFrame, *, min_games: int = 5, last_n: Optional[int] = None) -> pd.DataFrame:
+    """Teams whose results beat (or trail) their shot quality the most - regression candidates.
+    With ``last_n``, only each team's last N games count and only teams with all N are listed."""
+    s = team_summary(tg, last_n=last_n, min_games=last_n or min_games)
     if s.empty:
         return s
     cols = ["G", "W-L", "SQ W-L", "margin", "sq_margin", "shot_making", "shot_defense", "luck", "ATS", "SQ ATS"]

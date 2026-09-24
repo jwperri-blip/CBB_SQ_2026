@@ -243,7 +243,7 @@ def cmd_trending(settings: Settings, args) -> None:
 
 def cmd_luck(settings: Settings, args) -> None:
     tg = _team_games(settings, args)
-    t = analysis.luck_table(tg, min_games=args.min_games)
+    t = analysis.luck_table(tg, min_games=args.min_games, last_n=args.last)
     if args.unlucky and not t.empty:
         t = t.sort_values("luck")
     _print(t, rows=args.top, digits=2)
@@ -350,6 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("luck", help="results vs shot quality: regression candidates")
     sp.add_argument("--unlucky", action="store_true", help="list the unluckiest first")
+    sp.add_argument("--last", type=int, help="only each team's last N games (e.g. 5 or 10)")
     filters(sp, min_games=5)
     sp.set_defaults(func=cmd_luck)
 

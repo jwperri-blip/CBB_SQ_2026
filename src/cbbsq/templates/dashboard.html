@@ -30,6 +30,9 @@
   main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
   h1 { font-size: 24px; margin: 0 0 2px; }
   h2 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 13px; margin: 0 0 6px; color: var(--text-2); font-weight: 600; }
+  .perf { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 16px; }
+  @media (max-width: 900px) { .perf { grid-template-columns: 1fr; } }
   .sub { color: var(--text-2); margin: 0 0 18px; }
   .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 16px; }
   .controls label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
@@ -76,6 +79,20 @@
     <div class="tablewrap"><table id="board"><thead></thead><tbody></tbody></table></div>
     <p class="note">SQ = ShotQuality's shot-quality points per possession. SQ Net = offense SQ PPP − SQ PPP allowed.
       Adj = opponent-adjusted (full season). Luck/g = actual margin − SQ margin. Δ Net = last 5 games vs. season. Click a team for its trend.</p>
+  </div>
+
+  <div class="card" id="perfcard">
+    <h2>Over- and under-performers</h2>
+    <div class="controls"><label>Teams per table<select id="perfn"><option>10</option><option>15</option><option>25</option></select></label></div>
+    <div class="perf">
+      <div><h3>Last 5 games · overperforming</h3><div class="tablewrap"><table id="p5o"><thead></thead><tbody></tbody></table></div></div>
+      <div><h3>Last 5 games · underperforming</h3><div class="tablewrap"><table id="p5u"><thead></thead><tbody></tbody></table></div></div>
+      <div><h3>Last 10 games · overperforming</h3><div class="tablewrap"><table id="p10o"><thead></thead><tbody></tbody></table></div></div>
+      <div><h3>Last 10 games · underperforming</h3><div class="tablewrap"><table id="p10u"><thead></thead><tbody></tbody></table></div></div>
+    </div>
+    <p class="note">Luck/g = actual margin − SQ margin per game over the sample, split into Off (points scored − SQ points) and
+      Def (opponent SQ points − opponent points). Overperformers are winning by more than their shots deserve and tend to
+      cool off; underperformers tend to bounce back. Only teams with the full 5 or 10 games are listed. Click a team for its trend.</p>
   </div>
 
   <div class="card" id="teamcard">
@@ -176,6 +193,37 @@ function renderBoard() {
   });
   if (!rs.length) { const row = body.insertRow(); const td = row.insertCell(); td.colSpan = COLS.length + 1; td.className = 'l empty'; td.textContent = 'No teams match.'; }
   renderScatter(rs);
+}
+
+const PERF_COLS = [
+  ['team', 'Team', (v) => v], ['W-L', 'W-L', (v) => v], ['SQ W-L', 'SQ W-L', (v) => v],
+  ['margin', 'Margin', (v) => sgn(v, f1)], ['sq_margin', 'SQ Margin', (v) => sgn(v, f1)],
+  ['shot_making', 'Off', (v) => sgn(v, f1)], ['shot_defense', 'Def', (v) => sgn(v, f1)], ['luck', 'Luck/g', (v) => sgn(v, f1)]];
+
+function perfTable(id, list) {
+  const t = $(id); t.tHead.innerHTML = ''; t.tBodies[0].innerHTML = '';
+  const hr = t.tHead.insertRow();
+  ['#', ...PERF_COLS.map((c) => c[1])].forEach((h, i) => { const th = document.createElement('th'); th.textContent = h; th.style.cursor = 'default'; if (i < 2) th.className = 'l'; hr.append(th); });
+  list.forEach((r, i) => {
+    const row = t.tBodies[0].insertRow();
+    row.onclick = () => { selectTeam(r.team); $('teamcard').scrollIntoView({behavior: 'smooth'}); };
+    const n = row.insertCell(); n.textContent = i + 1; n.className = 'l';
+    PERF_COLS.forEach(([k, , f], j) => {
+      const td = row.insertCell(); td.textContent = f(r[k]);
+      if (j === 0) td.className = 'l';
+      if (j >= 3 && r[k] != null && Math.abs(r[k]) > 1e-9) td.classList.add(r[k] > 0 ? 'pos' : 'negv');
+    });
+  });
+  if (!list.length) { const td = t.tBodies[0].insertRow().insertCell(); td.colSpan = PERF_COLS.length + 1; td.className = 'l empty'; td.textContent = 'Not enough games yet.'; }
+}
+
+function renderPerf() {
+  const top = +$('perfn').value || 10;
+  for (const n of [5, 10]) {
+    const full = (DATA.summaries['last' + n] || []).filter((r) => r.G >= n && r.luck != null);
+    perfTable(`p${n}o`, full.filter((r) => r.luck > 0).sort((a, b) => b.luck - a.luck).slice(0, top));
+    perfTable(`p${n}u`, full.filter((r) => r.luck < 0).sort((a, b) => a.luck - b.luck).slice(0, top));
+  }
 }
 
 function svgEl(tag, attrs, parent) {
@@ -313,7 +361,8 @@ function selectTeam(team, quiet) {
 
 ['win', 'ming', 'q'].forEach((id) => $(id).addEventListener('input', renderBoard));
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (selected) selectTeam(selected, true); renderBoard(); }, 150); });
-if (DATA.games) renderBoard(); else { $('teamcard').style.display = 'none'; }
+$('perfn').addEventListener('input', renderPerf);
+if (DATA.games) { renderBoard(); renderPerf(); } else { $('teamcard').style.display = 'none'; $('perfcard').style.display = 'none'; }
 </script>
 </body>
 </html>

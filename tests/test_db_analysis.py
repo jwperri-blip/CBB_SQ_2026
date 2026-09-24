@@ -129,6 +129,10 @@ def test_summary_trending_luck_and_report(conn, tmp_path):
     assert {"delta_net", "slope_per_game"} <= set(tr.columns) and len(tr) == 24
     lk = analysis.luck_table(tg)
     assert lk["luck"].is_monotonic_decreasing
+    lk5 = analysis.luck_table(tg, last_n=5)
+    assert (lk5["G"] == 5).all() and lk5["luck"].is_monotonic_decreasing
+    t_last = tg[tg.team == lk5.index[0]].tail(5)
+    assert lk5["luck"].iloc[0] == pytest.approx(t_last["luck"].mean())
     log = analysis.team_log(tg, t0, window=5)
     assert "sq_net_ppp_r5" in log and len(log) == 24
     out = write_report(tg, tmp_path / "dash.html")
@@ -143,3 +147,26 @@ def test_empty_database_is_handled(conn, tmp_path):
     assert analysis.adjusted_ratings(tg).empty
     assert analysis.trending(tg).empty
     assert write_report(tg, tmp_path / "empty.html").exists()
+
+
+def test_dashboard_over_under_performer_tables(conn, tmp_path, chromium_ok):
+    from playwright.sync_api import sync_playwright
+
+    simulate_season(conn)
+    tg = analysis.load_team_games(conn)
+    out = write_report(tg, tmp_path / "dash.html")
+    lk5, lk10 = analysis.luck_table(tg, last_n=5), analysis.luck_table(tg, last_n=10)
+    with sync_playwright() as p:
+        page = p.chromium.launch().new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(out.resolve().as_uri())
+        first = lambda tid: page.locator(f"#{tid} tbody tr").first.locator("td").nth(1).inner_text()
+        assert first("p5o") == lk5.index[0] and first("p5u") == lk5.index[-1]
+        assert first("p10o") == lk10.index[0] and first("p10u") == lk10.index[-1]
+        assert page.locator("#p5o tbody tr").count() == min(10, int((lk5["luck"] > 0).sum()))
+        page.select_option("#perfn", "25")
+        assert page.locator("#p5o tbody tr").count() == min(25, int((lk5["luck"] > 0).sum()))
+        page.locator("#p10u tbody tr").first.click()
+        assert page.locator("#tname").inner_text() == lk10.index[-1]
+        assert not errors
