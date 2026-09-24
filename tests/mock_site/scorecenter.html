@@ -193,7 +193,7 @@ async function load() {
   const res = await fetch(`/api/cbb/scorecenter?date=${current}`, {headers: {Authorization: 'Bearer ' + token}});
   if (res.status === 401) { localStorage.removeItem('sq_token'); location.replace('/login'); return; }
   const games = (await res.json()).games;
-  await new Promise((r) => setTimeout(r, slow ? 1200 : 150));  // simulate render latency
+  await new Promise((r) => setTimeout(r, slow ? +(params.get('lag') || 1200) : 150));  // simulate render latency
   if (!slow) count.textContent = `Showing ${games.length} of ${games.length} games`;
   grid.innerHTML = '';
   games.forEach((g, i) => grid.append(i % 2 ? cardB(g) : cardA(g)));

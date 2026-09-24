@@ -173,6 +173,8 @@ _SHOWING_JS = r"""
         return m ? m[0] : null; }
 """
 
+_HAS_CARDS_JS = "() => /SQ Score/i.test(document.body ? document.body.innerText : '')"
+
 _WAIT_GAMES_JS = r"""
 () => {
   const t = document.body ? document.body.innerText : '';
@@ -439,8 +441,13 @@ class Scraper:
         while time.time() < deadline and not any(t in u for u in self._fetched[mark:] for t in tokens):
             self.page.wait_for_timeout(250)
         if label:
-            deadline = time.time() + 8  # the count may legitimately stay the same
-            while time.time() < deadline and self.page.evaluate(_SHOWING_JS) == label:
+            # done once the count line changes; if it doesn't (two dates with the same number of
+            # games) accept the page after 8 s, but only once game cards are showing again -
+            # big slates can take well over that to appear
+            start = time.time()
+            while time.time() < start + 60 and self.page.evaluate(_SHOWING_JS) == label:
+                if time.time() > start + 8 and self.page.evaluate(_HAS_CARDS_JS):
+                    break
                 self.page.wait_for_timeout(250)
 
     def _read_date_control(self) -> Optional[dict]:
