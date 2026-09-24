@@ -158,6 +158,16 @@ _CLICK_NAV_JS = r"""
 }
 """
 
+_CALENDAR_OPEN_JS = r"""
+() => {
+  const visible = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const capRe = /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i;
+  for (const e of document.querySelectorAll('body *'))
+    if (e.children.length === 0 && visible(e) && capRe.test((e.textContent || '').trim())) return true;
+  return false;
+}
+"""
+
 _WAIT_GAMES_JS = r"""
 () => {
   const t = document.body ? document.body.innerText : '';
@@ -448,8 +458,10 @@ class Scraper:
                 target.press("Enter")
             page.keyboard.press("Escape")
         else:
-            target.click()
-            page.wait_for_timeout(400)
+            # the popup can still be open from the last pick; clicking the button then would close it
+            if not page.evaluate(_CALENDAR_OPEN_JS):
+                target.click()
+                page.wait_for_timeout(400)
             self._pick_calendar_day(d)
         self._wait_for_games(previous_signature=signature)
         now = self._read_date_control()
@@ -467,7 +479,7 @@ class Scraper:
             if state.get("found"):
                 page.locator('[data-cbbsq-day="1"]').first.click()
                 page.wait_for_timeout(300)
-                if page.locator('[data-cbbsq-day="1"]').count() and page.locator('[data-cbbsq-day="1"]').first.is_visible():
+                if page.evaluate(_CALENDAR_OPEN_JS):
                     page.keyboard.press("Escape")  # popup stayed open
                 return
             caption = state.get("caption")

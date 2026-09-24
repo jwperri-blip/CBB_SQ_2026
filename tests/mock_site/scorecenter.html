@@ -64,6 +64,7 @@ const fmt = (v, d = 2) => v == null ? '-' : Number(v).toFixed(d);
 
 function renderToolbar() {
   const bar = document.getElementById('toolbar');
+  const keep = picker === 'shadcn' ? bar.querySelector('.popover') : null;  // shadcn popup survives a pick
   bar.innerHTML = '';
   if (picker === 'input') {
     const inp = el('input', {type: 'text', value: mdy(current), 'aria-label': 'Date'});
@@ -86,7 +87,11 @@ function renderToolbar() {
     bar.append(btn);
   }
   bar.append(el('input', {type: 'text', placeholder: 'Search by Team'}));
+  if (keep) bar.append(keep);
 }
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.querySelectorAll('.popover').forEach((p) => p.remove());
+});
 
 function openCalendar(bar) {
   let [y, m] = current.split('-').map(Number);
@@ -113,7 +118,11 @@ function openCalendar(bar) {
         const inMonth = day.getUTCMonth() === m - 1;
         const b = el('button', {name: 'day', role: 'gridcell', class: inMonth ? 'day' : 'day day-outside'}, String(day.getUTCDate()));
         const iso = `${day.getUTCFullYear()}-${pad(day.getUTCMonth() + 1)}-${pad(day.getUTCDate())}`;
-        b.onclick = () => { current = iso; pop.remove(); load(); };
+        b.onclick = () => {
+          current = iso;
+          if (picker === 'shadcn') draw(); else pop.remove();  // shadcn: popup stays open, days re-render
+          load();
+        };
         tr.append(el('td', {role: 'presentation'}, b));
       }
       table.append(tr);
