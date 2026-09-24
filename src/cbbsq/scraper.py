@@ -168,6 +168,11 @@ _CALENDAR_OPEN_JS = r"""
 }
 """
 
+_SHOWING_JS = r"""
+() => { const m = (document.body ? document.body.innerText : '').match(/Showing\s+\d+\s+of\s+\d+\s+games?/i);
+        return m ? m[0] : null; }
+"""
+
 _WAIT_GAMES_JS = r"""
 () => {
   const t = document.body ? document.body.innerText : '';
@@ -193,6 +198,7 @@ class Scraper:
         self.capture_network = capture_network
         self.log = log
         self._responses: list = []
+        self._fetched: list[str] = []  # every XHR/fetch URL, to see when a date's data arrives
         self._pw = None
         self.context = None
         self.page = None
@@ -234,11 +240,12 @@ class Scraper:
 
     # -------------------------------------------------------------- network
     def _on_response(self, response) -> None:
-        if not self.capture_network:
-            return
         try:
             req = response.request
             if req.resource_type not in ("xhr", "fetch"):
+                return
+            self._fetched.append(response.url)
+            if not self.capture_network:
                 return
             if _ANALYTICS.search(response.url) or _AUTHY.search(response.url):
                 return
@@ -423,6 +430,19 @@ class Scraper:
             self._wait_for_games()
         self.set_date_ui(d)
 
+    def _wait_for_date_data(self, d: date, mark: int, label: Optional[str]) -> None:
+        """After picking a date the page updates in stages (old cards vanish, the new day's data
+        is fetched, cards render, then the "Showing N games" line). Wait for the data request and
+        the new count so a half-updated page is never read."""
+        tokens = date_formats(d)
+        deadline = time.time() + 20
+        while time.time() < deadline and not any(t in u for u in self._fetched[mark:] for t in tokens):
+            self.page.wait_for_timeout(250)
+        if label:
+            deadline = time.time() + 8  # the count may legitimately stay the same
+            while time.time() < deadline and self.page.evaluate(_SHOWING_JS) == label:
+                self.page.wait_for_timeout(250)
+
     def _read_date_control(self) -> Optional[dict]:
         return self.page.evaluate(_FIND_DATE_CONTROL_JS)
 
@@ -443,6 +463,7 @@ class Scraper:
         if self._matches(ctl["value"], d):
             return
         signature = page.evaluate(_SIGNATURE_JS)
+        label, mark = page.evaluate(_SHOWING_JS), len(self._fetched)
         target = page.locator('[data-cbbsq-date="1"]').first
         if ctl["kind"] == "input":
             text = d.isoformat() if ctl["type"] == "date" else d.strftime("%m/%d/%Y")
@@ -463,6 +484,7 @@ class Scraper:
                 target.click()
                 page.wait_for_timeout(400)
             self._pick_calendar_day(d)
+        self._wait_for_date_data(d, mark, label)
         self._wait_for_games(previous_signature=signature)
         now = self._read_date_control()
         if not now or not self._matches(now["value"], d):
@@ -546,6 +568,10 @@ class Scraper:
         self.drain_network()
         self.goto_date(d)
         data = self.extract()
+        if data.get("showing") is not None and len(data["cards"]) != data["showing"]:
+            self.page.wait_for_timeout(2_000)  # still rendering: give it one more look
+            self._wait_for_games()
+            data = self.extract()
         result = {
             "date": d.isoformat(),
             "url": self.page.url,

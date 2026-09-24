@@ -186,14 +186,18 @@ function cardB(g) {  // column-major PPP block, split labels, SVG gauges, multi-
 async function load() {
   renderToolbar();
   history.replaceState(null, '', `?date=${current}` + (picker !== 'calendar' ? `&picker=${picker}` : ''));
+  const grid = document.getElementById('grid');
+  const count = document.getElementById('count');
+  const slow = picker === 'shadcn';  // like the real site: old cards vanish, new ones arrive late, count last
+  if (slow) { grid.innerHTML = ''; await new Promise((r) => setTimeout(r, 1200)); }
   const res = await fetch(`/api/cbb/scorecenter?date=${current}`, {headers: {Authorization: 'Bearer ' + token}});
   if (res.status === 401) { localStorage.removeItem('sq_token'); location.replace('/login'); return; }
   const games = (await res.json()).games;
-  await new Promise((r) => setTimeout(r, 150));  // simulate render latency
-  document.getElementById('count').textContent = `Showing ${games.length} of ${games.length} games`;
-  const grid = document.getElementById('grid');
+  await new Promise((r) => setTimeout(r, slow ? 1200 : 150));  // simulate render latency
+  if (!slow) count.textContent = `Showing ${games.length} of ${games.length} games`;
   grid.innerHTML = '';
   games.forEach((g, i) => grid.append(i % 2 ? cardB(g) : cardA(g)));
+  if (slow) { await new Promise((r) => setTimeout(r, 1200)); count.textContent = `Showing ${games.length} of ${games.length} games`; }
 }
 document.getElementById('logout').onclick = () => { localStorage.removeItem('sq_token'); location.replace('/login'); };
 if (token) load();

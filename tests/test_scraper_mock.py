@@ -30,8 +30,10 @@ def make_settings(tmp_path, url, password=PASSWORD, **over):
 ])
 def test_collect_all_date_modes(tmp_path, mock_site, path):
     s = make_settings(tmp_path, mock_site + path)
-    failures = collect(s, [date(2026, 1, 10), date(2026, 1, 11), date(2025, 12, 30)], log=lambda m: None)
+    msgs = []
+    failures = collect(s, [date(2026, 1, 10), date(2026, 1, 11), date(2025, 12, 30)], log=msgs.append)
     assert failures == 0
+    assert not [m for m in msgs if "warning" in m]  # page count and cards read agree on every date
     conn = sqlite3.connect(s.db_path)
     conn.row_factory = sqlite3.Row
     rows = {r["game_id"]: dict(r) for r in conn.execute("SELECT * FROM games")}
