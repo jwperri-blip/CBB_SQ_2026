@@ -1,0 +1,32 @@
+{
+  "2026-01-10": [
+    {"status": "Live", "detail": "2nd 11:06",
+     "away": {"name": "Army West Point Black Knights", "score": 53, "sq": 49.1, "pct": 49, "ppp": 1.11, "sqppp": 1.03, "pre": 1.06},
+     "home": {"name": "Boston U. Terriers", "score": 69, "sq": 45.5, "pct": 21, "ppp": 1.45, "sqppp": 0.96, "pre": 1.05},
+     "line": {"pre": "BOS -6.5", "cur": "BOS -16.5"}, "ou": {"pre": "140.5", "cur": "165.5"}},
+    {"status": "Final", "detail": null,
+     "away": {"name": "West Ga. Wolves", "score": 43, "sq": 58.3, "pct": 30, "ppp": 0.71, "sqppp": 0.96, "pre": 1.06},
+     "home": {"name": "Jacksonville Dolphins", "score": 75, "sq": 62.4, "pct": 39, "ppp": 1.24, "sqppp": 1.03, "pre": 1.08},
+     "line": {"pre": "JAC -1.5"}, "ou": {"pre": "141.5"}},
+    {"status": "Final", "detail": null,
+     "away": {"name": "Brown Bears", "score": 73, "sq": 69.1, "pct": 46, "ppp": 1.08, "sqppp": 1.02, "pre": 1.03},
+     "home": {"name": "Penn Quakers", "score": 81, "sq": 75.1, "pct": 62, "ppp": 1.20, "sqppp": 1.11, "pre": 1.06},
+     "line": {"pre": "PEN -5.5"}, "ou": {"pre": "145.0"}},
+    {"status": "Scheduled", "detail": "9:00 PM ET",
+     "away": {"name": "Utah Tech Trailblazers", "pre": 1.01},
+     "home": {"name": "Tarleton St. Texans", "pre": 1.04},
+     "line": {"pre": "TAR -4.5"}, "ou": {"pre": "138.5"}}
+  ],
+  "2026-01-11": [
+    {"status": "Final", "detail": "OT",
+     "away": {"name": "Jacksonville Dolphins", "score": 70, "sq": 66.0, "pct": 55, "ppp": 1.00, "sqppp": 0.94, "pre": 1.05},
+     "home": {"name": "Brown Bears", "score": 68, "sq": 71.3, "pct": 70, "ppp": 0.97, "sqppp": 1.02, "pre": 1.02},
+     "line": {"pre": "BRO -2.5"}, "ou": {"pre": "139.5"}}
+  ],
+  "2025-12-30": [
+    {"status": "Final", "detail": null,
+     "away": {"name": "Penn Quakers", "score": 60, "sq": 64.2, "pct": 40, "ppp": 0.92, "sqppp": 0.99, "pre": 1.01},
+     "home": {"name": "West Ga. Wolves", "score": 66, "sq": 61.0, "pct": 35, "ppp": 1.02, "sqppp": 0.94, "pre": 0.98},
+     "line": {"pre": "PK"}, "ou": {"pre": "133.0"}}
+  ]
+}

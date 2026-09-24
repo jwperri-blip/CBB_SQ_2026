@@ -1,0 +1,17 @@
+# secrets and browser session (never commit)
+.env
+.auth/
+
+# collected data and generated output
+data/
+reports/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/

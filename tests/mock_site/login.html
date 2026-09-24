@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Log in (mock)</title></head>
+<body style="background:#0b0d12;color:#eee;font-family:system-ui">
+<form id="f" style="width:320px;margin:80px auto;display:flex;flex-direction:column;gap:10px">
+  <label>Email <input name="email" type="email" autocomplete="username"></label>
+  <label>Password <input name="password" type="password" autocomplete="current-password"></label>
+  <button type="submit">Log In</button>
+  <p id="err" style="color:#f55"></p>
+</form>
+<script>
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = JSON.stringify({email: e.target.email.value, password: e.target.password.value});
+  const res = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+  if (!res.ok) { document.getElementById('err').textContent = 'Invalid email or password'; return; }
+  localStorage.setItem('sq_token', (await res.json()).token);
+  const next = new URLSearchParams(location.search).get('next') || '/scorecenter';
+  location.replace(next);
+});
+</script>
+</body></html>
