@@ -43,6 +43,31 @@ In `.env`:
 
 `.env` and the saved browser session (`.auth/`) are git-ignored. Never commit them.
 
+### Setting up on another Mac (a collaborator)
+
+Everyone runs their own copy with their own ShotQuality account; nothing is shared through GitHub except the code (`.env`, `.auth/`, `data/` and `reports/` are never uploaded).
+
+```bash
+git clone https://github.com/jwperri-blip/CBB_SQ_2026.git
+cd CBB_SQ_2026
+bash scripts/setup-mac.sh          # Python environment, the cbbsq command, its browser, and .env
+source .venv/bin/activate
+open -e .env                       # your ScoreCenter URL (and login for unattended runs)
+cbbsq login --headed               # log in once
+```
+
+The setup script picks a Python 3.9+ that isn't Anaconda's base environment, so a broken Anaconda `pip` doesn't get in the way.
+
+**History.** The thresholds need past games. Either collect last season yourself (it takes a while; `--skip-done` lets you stop and resume):
+
+```bash
+cbbsq collect --start 2025-11-03 --end 2026-04-06 --skip-done
+```
+
+or copy `data/cbbsq.sqlite` from someone who already has it into your own `data/` folder (picks and grades are rebuilt from it on the next `cbbsq update`).
+
+**Daily use** is then the same as anywhere: `cbbsq schedule` (8:00 and 17:00), `cbbsq update` to run it now, and `git pull && pip install -e .` to get the latest code.
+
 ## 2. Log in and calibrate
 
 ```bash
