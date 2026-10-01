@@ -93,11 +93,21 @@ cbbsq ratings                         # opponent-adjusted SQ ratings (and --metr
 cbbsq team "Penn"                     # game log plus 5-game rolling SQ trends (partial names work)
 cbbsq trending                        # heating up: last 5 vs season   (--cooling for drops)
 cbbsq luck                            # results beating their shot quality (--unlucky for the reverse)
+cbbsq spots                           # today's games ranked by the luck gap between the teams (--date, --min-gap)
 cbbsq report                          # reports/dashboard.html, an interactive dashboard
 cbbsq export                          # CSVs for Excel / Google Sheets in data/exports/
 ```
 
 Most commands accept `--season 2026` (the 2025-26 season), `--since` / `--until`, `--min-games` and `--top`.
+
+### Regression spots (today's slate)
+
+`cbbsq spots` (and the table at the top of the dashboard) lists every game stored for a date and ranks it by how much luckier one team has been than the other. Collect the slate first with `cbbsq collect --date today` so the scheduled games and their pre-game lines are in the database; `cbbsq report --spots-date` picks a date other than today.
+
+* Luck is per 100 possessions and uses only that season's games played **before** the slate date, so a past date shows exactly what you would have seen that morning.
+* It is split into **shoot** (own points minus own SQ points, which is partly real shooting skill) and **opp** (opponents' SQ points minus their points, which is mostly noise). `opp_gap` is the opponents'-shooting part of the gap.
+* **Back** is the less lucky team, with its pre-game line. Teams with fewer than 5 prior games (`--min-games`) get no pick.
+* This is a screen, not a validated model: no betting threshold has been backtested yet.
 
 ### What the metrics mean
 

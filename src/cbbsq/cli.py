@@ -249,6 +249,29 @@ def cmd_luck(settings: Settings, args) -> None:
     _print(t, rows=args.top, digits=2)
 
 
+def cmd_spots(settings: Settings, args) -> None:
+    on = (args.date or date.today()).isoformat()
+    conn = db.connect(settings.db_path)
+    spots = analysis.spots_for_date(conn, on, min_games=args.min_games, recent=args.recent)
+    conn.close()
+    if spots.empty:
+        print(f"No games stored for {on}. Run `cbbsq collect --date {on}` first.")
+        return
+    if args.min_gap:
+        spots = spots[spots["gap"] >= args.min_gap]
+    print(f"Regression spots for {on}: luck per 100 possessions from games before that date "
+          f"(shoot = own shot-making, opp = opponents' shooting). Back = the less lucky team.\n")
+    view = pd.DataFrame({
+        "matchup": spots["away_team"] + " @ " + spots["home_team"],
+        "line": spots["line"],
+        "away_luck": spots["away_luck"], "away_shoot": spots["away_shoot_luck"], "away_opp": spots["away_opp_luck"],
+        "home_luck": spots["home_luck"], "home_shoot": spots["home_shoot_luck"], "home_opp": spots["home_opp_luck"],
+        f"away_L{args.recent}": spots["away_luck_recent"], f"home_L{args.recent}": spots["home_luck_recent"],
+        "gap": spots["gap"], "opp_gap": spots["opp_gap"], "back": spots["back"], "back_line": spots["back_line"],
+    })
+    _print(view.set_index("matchup"), digits=1, rows=args.top)
+
+
 def cmd_export(settings: Settings, args) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -268,7 +291,11 @@ def cmd_report(settings: Settings, args) -> None:
     from .report import write_report
 
     tg = _team_games(settings, args)
-    path = write_report(tg, Path(args.out), min_games=args.min_games)
+    on = (args.spots_date or date.today()).isoformat()
+    conn = db.connect(settings.db_path)
+    spots = analysis.spots_for_date(conn, on)
+    conn.close()
+    path = write_report(tg, Path(args.out), min_games=args.min_games, spots=spots, spots_date=on)
     print(f"Dashboard written to {path.resolve()} - open it in your browser.")
 
 
@@ -353,12 +380,21 @@ def build_parser() -> argparse.ArgumentParser:
     filters(sp, min_games=5)
     sp.set_defaults(func=cmd_luck)
 
+    sp = sub.add_parser("spots", help="today's games ranked by the luck gap between the two teams")
+    sp.add_argument("--date", type=_date, help="slate date (default today)")
+    sp.add_argument("--min-games", type=int, default=5, help="prior games each team needs for a pick")
+    sp.add_argument("--recent", type=int, default=5, help="games in the recent-luck column")
+    sp.add_argument("--min-gap", type=float, help="only show games with at least this luck gap")
+    sp.add_argument("--top", type=int, help="show only the first N rows")
+    sp.set_defaults(func=cmd_spots)
+
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")
     sp.add_argument("--out", default="data/exports")
     sp.set_defaults(func=cmd_export)
 
     sp = sub.add_parser("report", help="write the HTML dashboard")
     sp.add_argument("--out", default="reports/dashboard.html")
+    sp.add_argument("--spots-date", type=_date, help="slate for the regression spots table (default today)")
     filters(sp, min_games=3)
     sp.set_defaults(func=cmd_report)
     return p

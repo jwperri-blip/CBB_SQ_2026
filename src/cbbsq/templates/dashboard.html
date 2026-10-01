@@ -65,6 +65,15 @@
   <h1>CBB Shot Quality</h1>
   <p class="sub" id="sub"></p>
 
+  <div class="card" id="spotscard">
+    <h2 id="spotstitle">Regression spots</h2>
+    <div class="tablewrap" style="max-height:420px"><table id="spots"><thead></thead><tbody></tbody></table></div>
+    <p class="note">Luck per 100 possessions, from each team's games this season before this date: own shot-making
+      (points − SQ points) plus opponents' shooting against it (opp. SQ points − opp. points). Gap = luckier team minus the other.
+      Opp gap = the opponents'-shooting part of the gap, the part most likely to be noise. Back = the less lucky team, with its pre-game line.
+      Teams with fewer than 5 prior games get no pick. A screen, not a backtested model. Click a row to open the team to back.</p>
+  </div>
+
   <div class="controls">
     <label>Games<select id="win"><option value="all">Full season</option><option value="last10">Last 10</option><option value="last5">Last 5</option></select></label>
     <label>Min. games<input id="ming" type="number" min="1" value="3" style="width:80px"></label>
@@ -311,6 +320,41 @@ function selectTeam(team, quiet) {
   if (!quiet) renderBoard();
 }
 
+function renderSpots() {
+  const spots = DATA.spots || [];
+  $('spotstitle').textContent = `Regression spots · ${DATA.spots_date || ''}`;
+  const t = $('spots'), head = t.tHead, body = t.tBodies[0];
+  head.innerHTML = ''; body.innerHTML = '';
+  const parts = (side) => (r) => r[`${side}_luck`] == null ? '–'
+    : `${sgn(r[`${side}_luck`], f1)} (${sgn(r[`${side}_shoot_luck`], f1)} / ${sgn(r[`${side}_opp_luck`], f1)})`;
+  const SC = [
+    ['Matchup', (r) => `${r.away_team} @ ${r.home_team}`, 'l'],
+    ['Status', (r) => r.status || '–', 'l'],
+    ['Line', (r) => r.line || '–', 'l'],
+    ['Away luck (shoot / opp)', parts('away')],
+    ['Home luck (shoot / opp)', parts('home')],
+    ['Away L5', (r) => sgn(r.away_luck_recent, f1)],
+    ['Home L5', (r) => sgn(r.home_luck_recent, f1)],
+    ['Gap', (r) => r.gap == null ? '–' : f1(r.gap)],
+    ['Opp gap', (r) => sgn(r.opp_gap, f1)],
+    ['Back', (r) => r.back ? `${r.back}${r.back_line == null ? '' : ' ' + (r.back_line > 0 ? '+' : '') + r.back_line}` : '–', 'l'],
+  ];
+  const hr = head.insertRow();
+  for (const [h, , cls] of SC) { const th = document.createElement('th'); th.textContent = h; th.style.cursor = 'default'; if (cls) th.className = cls; hr.append(th); }
+  if (!spots.length) {
+    const td = body.insertRow().insertCell(); td.colSpan = SC.length; td.className = 'l empty';
+    td.textContent = `No games stored for ${DATA.spots_date || 'this date'}. Run \`cbbsq collect --date today\` and rebuild the report.`;
+    return;
+  }
+  for (const r of spots) {
+    const row = body.insertRow();
+    if (r.back && DATA.logs[r.back]) row.onclick = () => { selectTeam(r.back); $('teamcard').scrollIntoView({behavior: 'smooth'}); };
+    else row.style.cursor = 'default';
+    for (const [, f, cls] of SC) { const td = row.insertCell(); td.textContent = f(r); if (cls) td.className = cls; }
+  }
+}
+
+renderSpots();
 ['win', 'ming', 'q'].forEach((id) => $(id).addEventListener('input', renderBoard));
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (selected) selectTeam(selected, true); renderBoard(); }, 150); });
 if (DATA.games) renderBoard(); else { $('teamcard').style.display = 'none'; }

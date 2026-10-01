@@ -2,6 +2,7 @@ import random
 from datetime import date, timedelta
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cbbsq import analysis, db
@@ -143,3 +144,45 @@ def test_empty_database_is_handled(conn, tmp_path):
     assert analysis.adjusted_ratings(tg).empty
     assert analysis.trending(tg).empty
     assert write_report(tg, tmp_path / "empty.html").exists()
+
+
+def test_regression_spots_pick_the_less_lucky_side_and_ignore_the_future(conn, tmp_path):
+    d0 = date(2026, 1, 1)
+    recs = []
+    for i in range(6):
+        d = d0 + timedelta(days=i)
+        # Hot Owls: score 10 over their shots every game, opponents on par. Cold Hawks: the reverse.
+        recs.append(game(d, f"Filler {i}", "Hot Owls", a=(60, 60.0, 0.86, 0.86), h=(80, 70.0, 1.14, 1.0)))
+        recs.append(game(d, "Cold Hawks", f"Other {i}", a=(60, 70.0, 0.86, 1.0), h=(70, 70.0, 1.0, 1.0)))
+    slate_day = d0 + timedelta(days=10)
+    today = game(slate_day, "Cold Hawks", "Hot Owls", status="Scheduled", a=(None, None, None, None),
+                 h=(None, None, None, None))
+    today["home_spread_pre"] = -6.5
+    # A final game on the slate date itself must not count toward the luck numbers.
+    later = game(slate_day, "Hot Owls", "Somebody", a=(40, 80.0, 0.6, 1.2))
+    db.upsert_games(conn, recs + [today, later])
+
+    spots = analysis.spots_for_date(conn, slate_day.isoformat())
+    row = spots[spots.game_id == today["game_id"]].iloc[0]
+    assert row.back == "Cold Hawks" and row.back_line == 6.5
+    assert row.line == "Hot Owls -6.5"
+    assert row.home_G == 6  # the same-day game is excluded
+    assert row.home_shoot_luck == pytest.approx(100 * 60 / (6 * 80 / 1.14))
+    assert row.away_luck == pytest.approx(-100 * 60 / (6 * 60 / 0.86))
+    assert row.gap == pytest.approx(row.home_luck - row.away_luck)
+    assert row.opp_gap == pytest.approx(0.0)
+    # The other slate game has a team with no history: listed, but no pick, and sorted last.
+    assert pd.isna(spots.iloc[-1].back)
+
+    html = write_report(analysis.load_team_games(conn), tmp_path / "d.html", spots=spots,
+                        spots_date=slate_day.isoformat()).read_text()
+    assert '"back":"Cold Hawks"' in html
+
+
+def test_regression_spots_need_min_games(conn):
+    d = date(2026, 1, 1)
+    db.upsert_games(conn, [game(d, "A Owls", "B Hawks"),
+                           game(d + timedelta(days=1), "A Owls", "B Hawks", status="Scheduled")])
+    spots = analysis.spots_for_date(conn, (d + timedelta(days=1)).isoformat())
+    assert len(spots) == 1 and pd.isna(spots.iloc[0].back)
+    assert analysis.spots_for_date(conn, "2026-03-01").empty

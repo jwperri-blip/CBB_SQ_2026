@@ -16,6 +16,7 @@ Derived:
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, timedelta
 from typing import Optional
 
 import numpy as np
@@ -222,3 +223,100 @@ def luck_table(tg: pd.DataFrame, *, min_games: int = 5) -> pd.DataFrame:
         return s
     cols = ["G", "W-L", "SQ W-L", "margin", "sq_margin", "shot_making", "shot_defense", "luck", "ATS", "SQ ATS"]
     return s[cols].sort_values("luck", ascending=False)
+
+
+def _per100(num: pd.Series, poss: pd.Series) -> float:
+    mask = num.notna() & poss.notna() & (poss > 0)
+    return float(100 * num[mask].sum() / poss[mask].sum()) if mask.any() else np.nan
+
+
+def team_luck(tg: pd.DataFrame, *, recent: int = 5) -> pd.DataFrame:
+    """Each team's luck per 100 possessions, split into its two parts.
+
+    ``shoot_luck``  own points minus own SQ points (partly real shooting skill)
+    ``opp_luck``    opponents' SQ points minus their points (mostly noise)
+    ``luck``        the sum; ``luck_recent`` is the same over the last ``recent`` games.
+    Per 100 possessions so fast-paced teams don't look luckier just for playing more possessions.
+    """
+    if tg.empty:
+        return pd.DataFrame(columns=["G", "shoot_luck", "opp_luck", "luck", "luck_recent"])
+    rows = {}
+    for team, g in tg.groupby("team"):
+        shoot = _per100(g["shot_making"], g["poss"])
+        opp = _per100(g["shot_defense"], g["opp_poss"])
+        r = g.tail(recent)
+        rows[team] = {
+            "G": len(g),
+            "shoot_luck": shoot,
+            "opp_luck": opp,
+            "luck": shoot + opp,
+            "luck_recent": _per100(r["shot_making"], r["poss"]) + _per100(r["shot_defense"], r["opp_poss"]),
+        }
+    out = pd.DataFrame.from_dict(rows, orient="index")
+    out.index.name = "team"
+    return out
+
+
+def load_slate(conn: sqlite3.Connection, on: str) -> pd.DataFrame:
+    """Every game stored for one date (any status), with the pre-game line."""
+    return pd.read_sql_query(
+        "SELECT game_id, game_date, status, status_detail, away_team, home_team, home_spread_pre, "
+        "spread_pre_team, spread_pre, total_pre FROM games WHERE game_date = ? ORDER BY game_id",
+        conn, params=[on])
+
+
+def regression_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 5,
+                     recent: int = 5) -> pd.DataFrame:
+    """Rank a slate by the luck gap between the two teams.
+
+    ``tg`` must hold only games played before the slate's date, so nothing from the future leaks in.
+    ``gap`` = luckier team's luck minus the other's (per 100 possessions); ``opp_gap`` is the same for
+    opponents' shooting alone. ``back`` is the less lucky team, with its pre-game line in ``back_line``.
+    Teams with fewer than ``min_games`` prior games get no pick. This is a screen, not a validated
+    model: no threshold has been backtested yet.
+    """
+    cols = ["game_id", "status", "away_team", "home_team", "line", "total_pre",
+            "away_G", "away_shoot_luck", "away_opp_luck", "away_luck", "away_luck_recent",
+            "home_G", "home_shoot_luck", "home_opp_luck", "home_luck", "home_luck_recent",
+            "gap", "opp_gap", "back", "back_line"]
+    if slate.empty:
+        return pd.DataFrame(columns=cols)
+    luck = team_luck(tg, recent=recent)
+    out = []
+    for g in slate.itertuples(index=False):
+        row = {"game_id": g.game_id, "status": g.status, "away_team": g.away_team, "home_team": g.home_team,
+               "total_pre": g.total_pre}
+        hs = g.home_spread_pre if pd.notna(g.home_spread_pre) else None
+        if hs is not None:
+            row["line"] = f"{g.home_team} {'PK' if hs == 0 else f'{hs:+g}'}"
+        elif pd.notna(g.spread_pre):
+            row["line"] = f"{g.spread_pre_team or ''} {g.spread_pre:+g}".strip()
+        else:
+            row["line"] = None
+        for side, team in (("away", g.away_team), ("home", g.home_team)):
+            t = luck.loc[team] if team in luck.index else None
+            row[f"{side}_G"] = int(t["G"]) if t is not None else 0
+            for k in ("shoot_luck", "opp_luck", "luck", "luck_recent"):
+                row[f"{side}_{k}"] = float(t[k]) if t is not None else np.nan
+        ok = row["away_G"] >= min_games and row["home_G"] >= min_games
+        if ok and pd.notna(row["away_luck"]) and pd.notna(row["home_luck"]):
+            diff = row["away_luck"] - row["home_luck"]
+            back_home = diff > 0
+            row["gap"] = abs(diff)
+            row["opp_gap"] = (row["away_opp_luck"] - row["home_opp_luck"]) * (1 if back_home else -1)
+            row["back"] = g.home_team if back_home else g.away_team
+            row["back_line"] = (hs if back_home else -hs) if hs is not None else None
+        else:
+            row.update(gap=np.nan, opp_gap=np.nan, back=None, back_line=None)
+        out.append(row)
+    df = pd.DataFrame(out, columns=cols)
+    return df.sort_values("gap", ascending=False, na_position="last").reset_index(drop=True)
+
+
+def spots_for_date(conn: sqlite3.Connection, on: str, *, min_games: int = 5, recent: int = 5) -> pd.DataFrame:
+    """Regression spots for one date, using only that season's games played before it."""
+    from .parse import season_for
+
+    d = date.fromisoformat(on)
+    tg = load_team_games(conn, season=season_for(d), end=(d - timedelta(days=1)).isoformat())
+    return regression_spots(tg, load_slate(conn, on), min_games=min_games, recent=recent)
