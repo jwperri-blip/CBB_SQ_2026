@@ -43,12 +43,21 @@
   h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
   .sub { color: var(--text-2); margin: 0; }
   header .sub { font-size: 12px; color: var(--muted); }
-  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--surface);
-             border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 14px 0 0; box-shadow: var(--shadow); }
-  .summary > div { padding: 12px 14px; min-width: 0; box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
-  .summary .v { font-size: 20px; font-weight: 650; white-space: nowrap; }
+  /* two sections, season to date and today, each following the threshold filter */
+  .summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 14px 0 0; }
+  @media (max-width: 760px) { .summary { grid-template-columns: minmax(0, 1fr); } }
+  .sgroup { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); min-width: 0; overflow: hidden; }
+  .sgroup .shead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px;
+                   padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .sgroup .shead b { font-size: 13px; }
+  .sgroup .shead span { color: var(--muted); font-size: 12px; }
+  .sgroup .scells { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+  .sgroup .scells > div { padding: 10px 14px 12px; min-width: 0; box-shadow: 1px 0 0 var(--border); }
+  .summary .v { font-size: 20px; font-weight: 650; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 4px; }
+  .summary .v small { font-size: 14px; font-weight: 600; white-space: nowrap; }
   .summary .k { color: var(--text-2); font-size: 12px; }
   .summary .d { color: var(--muted); font-size: 12px; }
+  .summary .filt { color: var(--text-2); font-size: 12px; padding: 8px 14px 0; }
   nav { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 0; margin-bottom: 4px; }
   .tabs { display: inline-flex; gap: 2px; background: var(--track); border-radius: 9px; padding: 3px; max-width: 100%; overflow-x: auto; }
   .tabs button { font: inherit; font-size: 13px; font-weight: 600; color: var(--text-2); background: none; border: 0; border-radius: 7px;
@@ -739,32 +748,61 @@ function ladderChart(el, rows, name) {
 }
 
 // The strip under the title: how the picks have done, and today's slate.
+// Units won on one graded pick at -110.
+const unitsOf = (r) => r === 'W' ? 100 / 110 : r === 'L' ? -1 : 0;
+const seasonOf = (d) => { const [y, m] = d.split('-').map(Number); return m >= 7 ? y + 1 : y; };
+
+// The two sections under the title, both following the threshold filter:
+// season to date (graded picks before the slate's date) and the slate itself.
 function renderSummary() {
-  const all = DATA.graded || [], spots = DATA.spots || [], f = activeFilter(), hasF = Object.keys(f).length > 0;
-  const s = tstats(all);
-  const picksToday = spots.filter((r) => r.back), pass = picksToday.filter((r) => meets(r, f));
-  const cell = (k, v, d, cls) => {
+  const f = activeFilter(), hasF = Object.keys(f).length > 0, day = DATA.spots_date || '';
+  const filterText = hasF ? MET.filter(([m]) => f[m] != null).map(([m, name]) => `${name} ≥ ${f[m]}`).join(' · ') : 'No filter: every pick';
+  const cell = (k, v, d, cls, units) => {
     const div = document.createElement('div');
-    const a = document.createElement('div'); a.className = 'v' + (cls ? ' ' + cls : ''); a.textContent = v;
+    const a = document.createElement('div'); a.className = 'v' + (cls ? ' ' + cls : '');
+    const main = document.createElement('span'); main.style.whiteSpace = 'nowrap'; main.textContent = v; a.append(main);
+    if (units != null) { const u = document.createElement('small'); u.textContent = `(${sgn(units, f1)}u)`; a.append(u); }
     const b = document.createElement('div'); b.className = 'k'; b.textContent = k;
     div.append(a, b);
     if (d) { const c = document.createElement('div'); c.className = 'd'; c.textContent = d; div.append(c); }
     return div;
   };
-  const items = [
-    cell(`Games on ${DATA.spots_date || 'the slate'}`, String(spots.length),
-         hasF ? `${picksToday.length} picks · ${pass.length} pass your filter` : `${picksToday.length} picks`),
-  ];
-  if (all.length) {
-    const dates = all.map((r) => r.pick_date).filter(Boolean).sort();
-    items.push(cell('Picks graded', String(s.bets), dates.length ? `${dates[0]} to ${dates[dates.length - 1]}` : ''),
-               cell('Record', s.record, 'against the pre-game line'),
-               cell('Win %', pctTxt(s.pct), `± ${pctTxt(s.pm)} · break-even 52.4%`, s.pct > BE ? 'good' : 'bad'),
-               cell('Units at −110', sgn(s.units, f1), s.roi == null ? '' : `ROI ${sgn(100 * s.roi, f1)}%`, s.units > 0 ? 'good' : s.units < 0 ? 'bad' : ''));
-  } else {
-    items.push(cell('Picks graded', '0', 'graded once games are final'));
-  }
-  $('summary').replaceChildren(...items);
+  const group = (title, note, cells) => {
+    const g = document.createElement('div'); g.className = 'sgroup';
+    const h = document.createElement('div'); h.className = 'shead';
+    const t = document.createElement('b'); t.textContent = title;
+    const n = document.createElement('span'); n.textContent = note;
+    h.append(t, n);
+    const flt = document.createElement('div'); flt.className = 'filt'; flt.textContent = filterText;
+    const row = document.createElement('div'); row.className = 'scells'; row.append(...cells);
+    g.append(h, flt, row);
+    return g;
+  };
+  const winCell = (st, d) => st.pct == null ? cell('Win % (units)', '–', d)
+    : cell('Win % (units)', pctTxt(st.pct), d, st.pct > BE ? 'good' : 'bad', st.units);
+
+  // Season to date
+  const season = day ? seasonOf(day) : null;
+  const past = (DATA.graded || []).filter((p) => passes(p, f) && (!day || (p.pick_date < day && seasonOf(p.pick_date) === season)));
+  const s = tstats(past);
+  const seasonGroup = group(season ? `${season - 1}-${String(season).slice(2)} season to date` : 'Season to date',
+    day ? `before ${day}` : '', [
+      cell('Bets', String(s.bets), hasF ? 'passing the filter' : 'graded'),
+      cell('Record', s.record, 'vs the pre-game line'),
+      winCell(s, s.pm == null ? 'break-even 52.4%' : `± ${pctTxt(s.pm)} · break-even 52.4%`),
+    ]);
+
+  // The slate's day
+  const spots = DATA.spots || [], picks = spots.filter((r) => r.back), pass = picks.filter((r) => meets(r, f));
+  const done = pass.filter((r) => ['W', 'L', 'P'].includes(r.result));
+  const t = tstats(done.map((r) => ({result: r.result, units: unitsOf(r.result)})));
+  const pending = pass.length - done.length - pass.filter((r) => r.result === 'V').length;
+  const todayGroup = group(day ? `Today · ${day}` : 'Today', `${spots.length} games · ${picks.length} picks`, [
+    cell('Bets', String(pass.length), hasF ? 'passing the filter' : 'every pick'),
+    cell('Record', done.length ? t.record : '–', pending > 0 ? `${pending} pending` : done.length ? 'all graded' : 'no bets'),
+    done.length ? winCell(t, pending > 0 ? 'so far' : '') : cell('Win % (units)', pass.length ? 'pending' : '–', pass.length ? 'graded once final' : ''),
+  ]);
+  $('summary').replaceChildren(todayGroup, seasonGroup);
 }
 
 // Tabs: one view at a time; charts are drawn when their tab is shown (they need its width).

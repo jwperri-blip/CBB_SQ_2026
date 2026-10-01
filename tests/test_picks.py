@@ -158,5 +158,10 @@ def test_dashboard_threshold_card_matches_python(conn, tmp_path, chromium_ok):
                 assert first.nth(3).inner_text() == hit["record"]
         # Filter by luck edge: the tiles show the same record as Python's filter.
         page.fill("#f_luck_edge", "2")
-        assert picks.stats(picks.filter_picks(g, {"luck_edge": 2}))["record"] in page.locator("#worktiles").inner_text()
+        filtered = picks.stats(picks.filter_picks(g, {"luck_edge": 2}))
+        assert filtered["record"] in page.locator("#worktiles").inner_text()
+        # The season section under the title follows the same filter, with units in parentheses.
+        summary = page.locator("#summary").inner_text()
+        assert "Luck edge ≥ 2" in summary and filtered["record"] in summary
+        assert f"({filtered['units']:+.1f}u)" in summary
         assert not errors
