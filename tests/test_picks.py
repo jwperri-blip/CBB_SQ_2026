@@ -145,7 +145,7 @@ def test_dashboard_threshold_card_matches_python(conn, tmp_path, chromium_ok):
         page = p.chromium.launch().new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(out.resolve().as_uri())
+        page.goto(out.resolve().as_uri() + "#thresholds")
         for target in (52, 55):
             page.fill("#tgt", str(target))
             page.fill("#tminb", "20")

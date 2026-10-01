@@ -204,7 +204,7 @@ def test_dashboard_over_under_performer_tables(conn, tmp_path, chromium_ok):
         page = p.chromium.launch().new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(out.resolve().as_uri())
+        page.goto(out.resolve().as_uri() + "#hotcold")
         first = lambda tid: page.locator(f"#{tid} tbody tr").first.locator("td").nth(1).inner_text()
         assert first("p5o") == lk5.index[0] and first("p5u") == lk5.index[-1]
         assert first("p10o") == lk10.index[0] and first("p10u") == lk10.index[-1]
@@ -234,13 +234,13 @@ def test_dashboard_spots_table_sorts_by_any_column(conn, tmp_path, chromium_ok):
         page.goto(out.resolve().as_uri())
 
         def column(name):
-            heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_inner_texts()]
+            heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_text_contents()]
             return page.locator(f"#spots tbody tr td:nth-child({heads.index(name) + 1})").all_inner_texts()
 
         def values(name):
             return [float(v) for v in column(name) if v != "–"]
 
-        heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_inner_texts()]
+        heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_text_contents()]
         assert heads == ["Game", "Bet", "Against", "Luck edge", "From opp. misses", "Last 5", "SQ edge"]
         gap = values("Luck edge")
         assert gap == sorted(gap, reverse=True) and column("Luck edge")[-1] == "–"  # default: biggest edge first

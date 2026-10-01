@@ -7,105 +7,161 @@
 <style>
   :root {
     color-scheme: light;
-    --bg: #f4f3f0; --surface: #fcfcfb; --border: #e4e3df; --grid: #ecebe7;
-    --text: #0b0b0b; --text-2: #52514e; --muted: #8a8984;
+    --bg: #f4f3f0; --surface: #fcfcfb; --border: #e4e3df; --grid: #ecebe7; --axis: #c3c2b7;
+    --text: #0b0b0b; --text-2: #52514e; --muted: #898781;
     --s1: #2a78d6; --s2: #eb6834; --neg: #e34948; --accent-wash: rgba(42,120,214,.10);
+    --track: #ecebe7; --good: #006300; --bad: #d03b3b;
+    --good-wash: rgba(12,163,12,.12); --bad-wash: rgba(208,59,59,.11);
+    --shadow: 0 1px 2px rgba(11,11,11,.04);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       color-scheme: dark;
-      --bg: #111110; --surface: #1a1a19; --border: #2f2f2c; --grid: #282826;
-      --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
+      --bg: #0d0d0d; --surface: #1a1a19; --border: #2f2f2c; --grid: #2c2c2a; --axis: #383835;
+      --text: #ffffff; --text-2: #c3c2b7; --muted: #898781;
       --s1: #3987e5; --s2: #d95926; --neg: #e66767; --accent-wash: rgba(57,135,229,.16);
+      --track: #2c2c2a; --good: #0ca30c; --bad: #e66767;
+      --good-wash: rgba(12,163,12,.18); --bad-wash: rgba(230,103,103,.16);
+      --shadow: none;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #111110; --surface: #1a1a19; --border: #2f2f2c; --grid: #282826;
-    --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
+    --bg: #0d0d0d; --surface: #1a1a19; --border: #2f2f2c; --grid: #2c2c2a; --axis: #383835;
+    --text: #ffffff; --text-2: #c3c2b7; --muted: #898781;
     --s1: #3987e5; --s2: #d95926; --neg: #e66767; --accent-wash: rgba(57,135,229,.16);
+    --track: #2c2c2a; --good: #0ca30c; --bad: #e66767;
+    --good-wash: rgba(12,163,12,.18); --bad-wash: rgba(230,103,103,.16);
+    --shadow: none;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
-  h1 { font-size: 24px; margin: 0 0 2px; }
-  h2 { font-size: 16px; margin: 0 0 12px; }
-  h3 { font-size: 13px; margin: 0 0 6px; color: var(--text-2); font-weight: 600; }
-  .perf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 16px; }
+  main { max-width: 1280px; margin: 0 auto; padding: 0 16px 48px; }
+
+  /* header, summary strip and tabs */
+  header { padding: 24px 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--text-2); margin: 0; }
+  header .sub { font-size: 12px; color: var(--muted); }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--surface);
+             border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 14px 0 0; box-shadow: var(--shadow); }
+  .summary > div { padding: 12px 14px; min-width: 0; box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
+  .summary .v { font-size: 20px; font-weight: 650; white-space: nowrap; }
+  .summary .k { color: var(--text-2); font-size: 12px; }
+  .summary .d { color: var(--muted); font-size: 12px; }
+  nav { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 0; margin-bottom: 4px; }
+  .tabs { display: inline-flex; gap: 2px; background: var(--track); border-radius: 9px; padding: 3px; max-width: 100%; overflow-x: auto; }
+  .tabs button { font: inherit; font-size: 13px; font-weight: 600; color: var(--text-2); background: none; border: 0; border-radius: 7px;
+                 padding: 7px 14px; cursor: pointer; white-space: nowrap; }
+  .tabs button:hover { color: var(--text); }
+  .tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  section[data-tab] { display: none; }
+  section[data-tab].on { display: block; }
+
+  /* cards, headings, controls */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; min-width: 0; box-shadow: var(--shadow); }
+  .card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 12px; }
+  .card-head .sub { font-size: 13px; }
+  h2 { font-size: 16px; margin: 0; }
+  h3 { font-size: 12px; margin: 16px 0 8px; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 14px; }
+  .controls label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
+  select, input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; }
+  input:focus, select:focus { outline: 2px solid var(--s1); outline-offset: -1px; }
+  .ctlsep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+  .linkbtn { font: inherit; font-size: 12px; color: var(--s1); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+  .perf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 20px; }
   .perf > div { min-width: 0; }
   @media (max-width: 900px) { .perf { grid-template-columns: minmax(0, 1fr); } }
-  .sub { color: var(--text-2); margin: 0 0 18px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 16px; }
-  .controls label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
-  select, input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; min-width: 0; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* tables: plain ink; color only where it means good / bad */
   .tablewrap { overflow-x: auto; max-height: 560px; overflow-y: auto; }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-  th, td { padding: 6px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
-  th { position: sticky; top: 0; background: var(--surface); color: var(--text-2); font-weight: 600; cursor: pointer; user-select: none; }
+  th, td { padding: 8px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+  th { position: sticky; top: 0; z-index: 1; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 600;
+       text-transform: uppercase; letter-spacing: .04em; cursor: pointer; user-select: none; border-bottom-color: var(--axis); }
   th:first-child, td:first-child, th.l, td.l { text-align: left; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: var(--accent-wash); }
-  tbody tr.sel { background: var(--accent-wash); font-weight: 600; }
-  .pos { color: var(--s1); } .negv { color: var(--neg); }
-  .tiles { display: flex; flex-wrap: wrap; gap: 24px; margin: 4px 0 16px; }
+  tbody tr.sel { background: var(--accent-wash); }
+  tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--s1); }
+  .pos, .negv { color: inherit; }
+  .good { color: var(--good); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; }
+  .dim { color: var(--muted); }
+  .chip { display: inline-block; min-width: 64px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+  .chip.good { background: var(--good-wash); } .chip.bad { background: var(--bad-wash); } .chip.push { background: var(--track); color: var(--text-2); }
+  .tick { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%;
+          background: var(--accent-wash); color: var(--s1); font-weight: 700; font-size: 12px; }
+  /* in-cell bars: one hue for size, blue / red from a zero line for signed numbers */
+  .bar { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .bar .track { position: relative; width: 64px; height: 8px; border-radius: 4px; background: var(--track); flex: none; }
+  .bar .fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+  .bar .zero { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--axis); }
+  .bar .num { min-width: 40px; }
+
+  .tiles { display: flex; flex-wrap: wrap; gap: 28px; margin: 4px 0 16px; }
   .tile .v { font-size: 22px; font-weight: 650; }
   .tile .k { color: var(--text-2); font-size: 12px; }
-  .legend { display: flex; gap: 16px; color: var(--text-2); font-size: 12px; margin-bottom: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; color: var(--text-2); font-size: 12px; margin-bottom: 6px; }
   .key { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+  .dotkey { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
   .chart { position: relative; }
-  svg text { fill: var(--muted); font-size: 11px; }
-  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-         padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: none; white-space: nowrap; z-index: 2; }
+  svg { display: block; }
+  svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+         padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.14); display: none; white-space: nowrap; z-index: 3; }
   .tip b { font-weight: 650; }
-  .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
   .empty { color: var(--text-2); padding: 24px 0; }
-  .how { color: var(--text-2); font-size: 12px; margin: 10px 0 0; padding-left: 18px; }
-  .how li { margin: 2px 0; }
-  .ctlsep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
-  .linkbtn { font: inherit; font-size: 12px; color: var(--s1); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; }
-  h3 { font-size: 14px; margin: 8px 0 8px; }
+  details.how { margin-top: 12px; color: var(--text-2); font-size: 12px; }
+  details.how summary { cursor: pointer; color: var(--s1); width: max-content; }
+  details.how ul { margin: 8px 0 0; padding-left: 18px; }
+  details.how li { margin: 3px 0; }
   tr.detail { cursor: default; } tr.detail:hover { background: none; }
-  tr.detail td { text-align: left; white-space: normal; color: var(--text-2); font-size: 12px; padding: 4px 8px 12px 24px; }
+  tr.detail td { text-align: left; white-space: normal; color: var(--text-2); font-size: 12px; padding: 6px 10px 14px 24px; }
   tr.detail button { font: inherit; color: var(--s1); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
 </style>
 </head>
 <body>
 <main>
-  <h1>CBB Shot Quality</h1>
-  <p class="sub" id="sub"></p>
+  <header>
+    <h1>CBB Shot Quality</h1>
+    <p class="sub" id="sub"></p>
+  </header>
+  <div class="summary" id="summary"></div>
 
+  <nav><div class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-tab="today">Today</button>
+    <button role="tab" data-tab="thresholds">Thresholds</button>
+    <button role="tab" data-tab="teams">Teams</button>
+    <button role="tab" data-tab="hotcold">Hot &amp; cold</button>
+  </div></nav>
+
+  <section data-tab="today">
   <div class="card" id="spotscard">
-    <h2 id="spotstitle">Regression spots</h2>
-    <p class="sub" style="margin:-6px 0 12px">Teams that have been lucky tend to come back to earth. Each game below names the side to bet: the team that has been less lucky.</p>
-    <div class="tablewrap" style="max-height:460px"><table id="spots"><thead></thead><tbody></tbody></table></div>
-    <ul class="how">
+    <div class="card-head">
+      <h2 id="spotstitle">Regression spots</h2>
+      <p class="sub">Bet the team that has been less lucky. Lucky teams tend to come back to earth.</p>
+    </div>
+    <div class="tablewrap" style="max-height:620px"><table id="spots"><thead></thead><tbody></tbody></table></div>
+    <details class="how"><summary>What the columns mean</summary><ul>
       <li><b>Luck edge:</b> how many more points per 100 possessions the team you're betting against has gained from luck this season (points scored and allowed vs. what the shots were worth). Bigger = stronger spot.</li>
-      <li><b>From opp. misses:</b> how much of that edge comes from opponents missing good shots, which is mostly chance. Positive is better.</li>
-      <li><b>Last 5:</b> the same edge over the last 5 games. Positive means recent games agree.</li>
-      <li><b>SQ edge:</b> how many points ShotQuality's pregame projection likes the same bet by against the line.</li>
-      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. <b>Find your threshold</b> below shows which numbers have won, and ticks today's games that pass your filter.</li>
-    </ul>
+      <li><b>From opp. misses:</b> how much of that edge comes from opponents missing good shots, which is mostly chance. Blue (positive) is better.</li>
+      <li><b>Last 5:</b> the same edge over the last 5 games. Blue means recent games agree.</li>
+      <li><b>SQ edge:</b> how many points ShotQuality's pregame projection likes the same bet by against the line. Blue means it agrees with the bet.</li>
+      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. The <b>Thresholds</b> tab shows which numbers have won; games that pass your filter there get a ✓ here.</li>
+    </ul></details>
   </div>
+  </section>
 
-  <div class="controls">
-    <label>Games<select id="win"><option value="all">Full season</option><option value="last10">Last 10</option><option value="last5">Last 5</option></select></label>
-    <label>Min. games<input id="ming" type="number" min="1" value="3" style="width:80px"></label>
-    <label>Find team<input id="q" type="search" placeholder="e.g. Penn"></label>
-  </div>
-
-  <div class="card">
-    <h2>Leaderboard</h2>
-    <div class="tablewrap"><table id="board"><thead></thead><tbody></tbody></table></div>
-    <p class="note">SQ = ShotQuality's shot-quality points per possession. SQ Net = offense SQ PPP − SQ PPP allowed.
-      Adj = opponent-adjusted (full season). Luck/g = actual margin − SQ margin. Δ Net = last 5 games vs. season. Click a team for its trend.</p>
-  </div>
-
+  <section data-tab="thresholds">
   <div class="card" id="workcard">
-    <h2>Find your threshold</h2>
-    <p class="sub" style="margin:-6px 0 12px" id="worksub">Every regression spots Bet so far, graded against its pre-game line at −110. Break-even is 52.4%.</p>
+    <div class="card-head">
+      <h2>Find your threshold</h2>
+      <p class="sub" id="worksub">Every Bet so far, graded against its pre-game line at −110. Break-even is 52.4%.</p>
+    </div>
     <div class="controls">
       <label>Target win %<input id="tgt" type="number" min="50" max="80" step="0.5" value="55" style="width:90px"></label>
       <label>Min. bets<input id="tminb" type="number" min="1" step="5" value="50" style="width:90px"></label>
@@ -119,34 +175,36 @@
     <div class="tiles" id="worktiles"></div>
     <h3 id="findtitle">Lowest threshold that wins 55%</h3>
     <div class="tablewrap" style="max-height:none"><table id="find"><thead></thead><tbody></tbody></table></div>
-    <h3 style="margin-top:18px">Win % at each threshold
-      <select id="lmetric" style="margin-left:8px"></select></h3>
-    <div class="tablewrap" style="max-height:none"><table id="ladder"><thead></thead><tbody></tbody></table></div>
-    <ul class="how">
-      <li><b>How to use it:</b> set the win % you want. The first table shows, for each number, the lowest value that has hit it. Click a row to add it to the filter, then the spots table above ticks the games that qualify today.</li>
-      <li><b>Filter:</b> the "≥" boxes stack. Both tables then only look at picks that pass the filter, so you can test combinations such as Luck edge ≥ 4 and Last 5 ≥ 0.</li>
+    <h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Win % at each threshold <select id="lmetric" style="text-transform:none;letter-spacing:0"></select></h3>
+    <div class="legend"><span><i class="dotkey" style="background:var(--s1)"></i>Win % of picks at or above the threshold</span>
+      <span><i class="key" style="border-color:var(--s1)"></i>95% range</span><span><i class="key" style="border-color:var(--bad)"></i>Break-even 52.4%</span></div>
+    <div class="chart" id="ladderchart"></div>
+    <div class="tablewrap" style="max-height:none;margin-top:8px"><table id="ladder"><thead></thead><tbody></tbody></table></div>
+    <details class="how"><summary>How to use it</summary><ul>
+      <li>Set the win % you want. The first table shows, for each number, the lowest value that has hit it. Click a row to add it to the filter; the <b>Today</b> tab then ticks the games that qualify.</li>
+      <li>The "≥" boxes stack, so you can test combinations such as Luck edge ≥ 4 and Last 5 ≥ 0. Everything on this tab then looks only at picks that pass the filter.</li>
       <li><b>SQ edge:</b> how many points ShotQuality's pregame projection likes the same bet by against the line. Negative means the projection prefers the other side.</li>
       <li><b>±:</b> the 95% range around the win %. A threshold found by looking back at results flatters itself, so trust it once the low end clears 52.4%, and check that it holds on new games.</li>
-    </ul>
+    </ul></details>
   </div>
+  </section>
 
-  <div class="card" id="perfcard">
-    <h2>Over- and under-performers</h2>
-    <div class="controls"><label>Teams per table<select id="perfn"><option>10</option><option>15</option><option>25</option></select></label></div>
-    <div class="perf">
-      <div><h3>Last 5 games · overperforming</h3><div class="tablewrap"><table id="p5o"><thead></thead><tbody></tbody></table></div></div>
-      <div><h3>Last 5 games · underperforming</h3><div class="tablewrap"><table id="p5u"><thead></thead><tbody></tbody></table></div></div>
-      <div><h3>Last 10 games · overperforming</h3><div class="tablewrap"><table id="p10o"><thead></thead><tbody></tbody></table></div></div>
-      <div><h3>Last 10 games · underperforming</h3><div class="tablewrap"><table id="p10u"><thead></thead><tbody></tbody></table></div></div>
+  <section data-tab="teams">
+  <div class="card">
+    <div class="card-head"><h2>Leaderboard</h2><p class="sub">Click a team for its trends.</p></div>
+    <div class="controls">
+      <label>Games<select id="win"><option value="all">Full season</option><option value="last10">Last 10</option><option value="last5">Last 5</option></select></label>
+      <label>Min. games<input id="ming" type="number" min="1" value="3" style="width:80px"></label>
+      <label>Find team<input id="q" type="search" placeholder="e.g. Penn"></label>
     </div>
-    <p class="note">Luck/g = actual margin − SQ margin per game over the sample, split into Off (points scored − SQ points) and
-      Def (opponent SQ points − opponent points). Overperformers are winning by more than their shots deserve and tend to
-      cool off; underperformers tend to bounce back. Only teams with the full 5 or 10 games are listed. Click a team for its trend.</p>
+    <div class="tablewrap"><table id="board"><thead></thead><tbody></tbody></table></div>
+    <p class="note">SQ = ShotQuality's shot-quality points per possession. SQ Net = offense SQ PPP − SQ PPP allowed.
+      Adj = opponent-adjusted (full season). Luck/g = actual margin − SQ margin. Δ Net = last 5 games vs. season.</p>
   </div>
 
   <div class="card" id="teamcard">
     <h2 id="tname">Team</h2>
-    <div class="tiles" id="tiles"></div>
+    <div class="tiles" id="tiles" style="margin-top:12px"></div>
     <div class="grid2">
       <div>
         <div class="legend"><span><i class="key" style="border-color:var(--s1)"></i>Offense SQ PPP</span><span><i class="key" style="border-color:var(--s2)"></i>Defense SQ PPP allowed</span></div>
@@ -159,14 +217,32 @@
         <p class="note">Points, game by game. Actual above SQ = won by more than the shots deserved.</p>
       </div>
     </div>
-    <div class="tablewrap" style="margin-top:12px;max-height:340px"><table id="log"><thead></thead><tbody></tbody></table></div>
+    <h3>Game log</h3>
+    <div class="tablewrap" style="max-height:340px"><table id="log"><thead></thead><tbody></tbody></table></div>
   </div>
 
   <div class="card">
-    <h2>Shot quality vs. results</h2>
+    <div class="card-head"><h2>Shot quality vs. results</h2><p class="sub">Above the line: results better than the shots, a regression candidate.</p></div>
     <div class="chart" id="c3"></div>
-    <p class="note">Each dot is a team (current game window and min. games). Above the diagonal: results better than shot quality, a regression candidate. Below: unlucky so far.</p>
+    <p class="note">Each dot is a team (current game window and min. games). Click one for its trends.</p>
   </div>
+  </section>
+
+  <section data-tab="hotcold">
+  <div class="card" id="perfcard">
+    <div class="card-head"><h2>Over- and under-performers</h2><p class="sub">Winning by more (or less) than their shots deserve.</p></div>
+    <div class="controls"><label>Teams per table<select id="perfn"><option>10</option><option>15</option><option>25</option></select></label></div>
+    <div class="perf">
+      <div><h3>Last 5 games · overperforming</h3><div class="tablewrap"><table id="p5o"><thead></thead><tbody></tbody></table></div></div>
+      <div><h3>Last 5 games · underperforming</h3><div class="tablewrap"><table id="p5u"><thead></thead><tbody></tbody></table></div></div>
+      <div><h3>Last 10 games · overperforming</h3><div class="tablewrap"><table id="p10o"><thead></thead><tbody></tbody></table></div></div>
+      <div><h3>Last 10 games · underperforming</h3><div class="tablewrap"><table id="p10u"><thead></thead><tbody></tbody></table></div></div>
+    </div>
+    <p class="note">Luck/g = actual margin − SQ margin per game over the sample, split into Off (points scored − SQ points) and
+      Def (opponent SQ points − opponent points). Overperformers tend to cool off; underperformers tend to bounce back.
+      Only teams with the full 5 or 10 games are listed. Click a team for its trends.</p>
+  </div>
+  </section>
 </main>
 
 <script>
@@ -231,7 +307,7 @@ function renderBoard() {
   rs.forEach((r, i) => {
     const row = body.insertRow();
     if (r.team === selected) row.className = 'sel';
-    row.onclick = () => selectTeam(r.team);
+    row.onclick = () => openTeam(r.team);
     const n = row.insertCell(); n.textContent = i + 1; n.className = 'l';
     for (const c of COLS) {
       const td = row.insertCell();
@@ -255,7 +331,7 @@ function perfTable(id, list) {
   ['#', ...PERF_COLS.map((c) => c[1])].forEach((h, i) => { const th = document.createElement('th'); th.textContent = h; th.style.cursor = 'default'; if (i < 2) th.className = 'l'; hr.append(th); });
   list.forEach((r, i) => {
     const row = t.tBodies[0].insertRow();
-    row.onclick = () => { selectTeam(r.team); $('teamcard').scrollIntoView({behavior: 'smooth'}); };
+    row.onclick = () => openTeam(r.team);
     const n = row.insertCell(); n.textContent = i + 1; n.className = 'l';
     PERF_COLS.forEach(([k, , f], j) => {
       const td = row.insertCell(); td.textContent = f(r[k]);
@@ -375,7 +451,7 @@ function renderScatter(rs) {
     };
     g.addEventListener('pointerenter', show); g.addEventListener('focus', show);
     g.addEventListener('pointerleave', () => { tip.style.display = 'none'; }); g.addEventListener('blur', () => { tip.style.display = 'none'; });
-    g.addEventListener('click', () => selectTeam(r.team));
+    g.addEventListener('click', () => openTeam(r.team));
   }
 }
 
@@ -408,6 +484,28 @@ function selectTeam(team, quiet) {
   if (!quiet) renderBoard();
 }
 
+// A number with an in-cell bar: one hue for size, or blue / red either side of a zero line.
+function barCell(v, max, signed, txt) {
+  const wrap = document.createElement('span'); wrap.className = 'bar';
+  const track = document.createElement('span'); track.className = 'track';
+  const fill = document.createElement('span'); fill.className = 'fill';
+  const frac = Math.min(1, Math.abs(v) / max);
+  if (signed) {
+    const z = document.createElement('span'); z.className = 'zero';
+    fill.style.width = (frac * 50) + '%';
+    fill.style[v >= 0 ? 'left' : 'right'] = '50%';
+    fill.style.background = v >= 0 ? 'var(--s1)' : 'var(--neg)';
+    if (v >= 0) fill.style.borderRadius = '0 4px 4px 0'; else fill.style.borderRadius = '4px 0 0 4px';
+    track.append(fill, z);
+  } else {
+    fill.style.left = '0'; fill.style.width = (frac * 100) + '%'; fill.style.background = 'var(--s1)';
+    track.append(fill);
+  }
+  const num = document.createElement('span'); num.className = 'num'; num.textContent = txt;
+  wrap.append(track, num);
+  return wrap;
+}
+
 let spotsKey = 'gap', spotsDir = -1;
 const spotsOpen = new Set();
 
@@ -423,17 +521,17 @@ function renderSpots() {
     {k: 'game', t: 'Game', v: (r) => `${r.away_team} @ ${r.home_team}`, cls: 'l', text: true},
     {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => r.back ? r.back + line(r.back_line) : 'No pick (under 5 games)', cls: 'l', text: true, bold: true},
     {k: 'fade', t: 'Against', v: fade, f: (r) => fade(r) || '–', cls: 'l', text: true},
-    {k: 'gap', t: 'Luck edge', v: (r) => r.gap, f: (r) => r.gap == null ? '–' : f1(r.gap)},
-    {k: 'opp_gap', t: 'From opp. misses', v: (r) => r.opp_gap, f: (r) => sgn(r.opp_gap, f1), color: true},
-    {k: 'l5_gap', t: 'Last 5', v: (r) => r.l5_gap, f: (r) => sgn(r.l5_gap, f1), color: true},
+    {k: 'gap', t: 'Luck edge', v: (r) => r.gap, f: (r) => r.gap == null ? '–' : f1(r.gap), bar: 'size'},
+    {k: 'opp_gap', t: 'From opp. misses', v: (r) => r.opp_gap, f: (r) => sgn(r.opp_gap, f1), bar: 'signed'},
+    {k: 'l5_gap', t: 'Last 5', v: (r) => r.l5_gap, f: (r) => sgn(r.l5_gap, f1), bar: 'signed'},
+    {k: 'sq_edge', t: 'SQ edge', v: (r) => r.sq_edge, f: (r) => sgn(r.sq_edge, f1), bar: 'signed'},
   ];
-  SC.push({k: 'sq_edge', t: 'SQ edge', v: (r) => r.sq_edge, f: (r) => sgn(r.sq_edge, f1), color: true});
   const flt = activeFilter();
   if (Object.keys(flt).length) {
-    SC.push({k: 'meets', t: 'Your filter', v: (r) => r.back ? (meets(r, flt) ? 1 : 0) : null, f: (r) => !r.back ? '–' : meets(r, flt) ? '✓' : ''});
+    SC.push({k: 'meets', t: 'Your filter', v: (r) => r.back ? (meets(r, flt) ? 1 : 0) : null, f: (r) => !r.back ? '–' : meets(r, flt) ? '✓' : '', tick: true});
   }
   if (spots.some((r) => r.result != null)) {
-    SC.push({k: 'cover', t: 'Result', v: (r) => r.cover, color: true,
+    SC.push({k: 'cover', t: 'Result', v: (r) => r.cover, chip: true,
              f: (r) => r.result == null ? '–' : r.result === 'V' ? 'void' : `${r.result} ${sgn(r.cover, (v) => String(+v.toFixed(1)))}`});
   }
   const hr = head.insertRow();
@@ -462,6 +560,9 @@ function renderSpots() {
     return `${name} (${G} games): luck ${sgn(r[`${side}_luck`], f1)} per 100 poss. (${sgn(r[`${side}_shoot_luck`], f1)} own shooting, `
       + `${sgn(r[`${side}_opp_luck`], f1)} opponents missing). Last 5: ${sgn(r[`${side}_luck_recent`], f1)}.`;
   };
+  // Bars share one scale per column, so lengths compare down the column.
+  const scale = {};
+  for (const c of SC) if (c.bar) scale[c.k] = Math.max(1e-9, ...spots.map((r) => Math.abs(c.v(r) ?? 0)));
   for (const r of rs) {
     const row = body.insertRow();
     const open = spotsOpen.has(r.game_id);
@@ -469,12 +570,18 @@ function renderSpots() {
     row.onclick = () => { open ? spotsOpen.delete(r.game_id) : spotsOpen.add(r.game_id); renderSpots(); };
     if (open) row.className = 'sel';
     for (const c of SC) {
-      const td = row.insertCell();
-      td.textContent = c.f ? c.f(r) : (c.v(r) ?? '–');
+      const td = row.insertCell(), v = c.v(r), txt = c.f ? c.f(r) : (v ?? '–');
       if (c.cls) td.className = c.cls;
+      if (c.bar && v != null) td.append(barCell(v, scale[c.k], c.bar === 'signed', txt));
+      else if (c.chip && r.result != null) {
+        const chip = document.createElement('span');
+        chip.className = 'chip ' + (r.result === 'W' ? 'good' : r.result === 'L' ? 'bad' : 'push');
+        chip.textContent = txt; td.append(chip);
+      } else if (c.tick && txt === '✓') {
+        const tk = document.createElement('span'); tk.className = 'tick'; tk.textContent = '✓'; tk.title = 'Passes your filter'; td.append(tk);
+      } else td.textContent = txt;
       if (c.bold && r.back) td.style.fontWeight = '600';
-      const v = c.v(r);
-      if (c.color && v != null && Math.abs(v) >= 0.05) td.classList.add(v > 0 ? 'pos' : 'negv');
+      if (c.k === 'back' && !r.back) td.classList.add('dim');
     }
     if (!open) continue;
     const d = body.insertRow(); d.className = 'detail';
@@ -485,7 +592,7 @@ function renderSpots() {
     }
     if (r.back && DATA.logs[r.back]) {
       const btn = document.createElement('button'); btn.textContent = `Open ${r.back}'s trends`;
-      btn.onclick = (ev) => { ev.stopPropagation(); selectTeam(r.back); $('teamcard').scrollIntoView({behavior: 'smooth'}); };
+      btn.onclick = (ev) => { ev.stopPropagation(); openTeam(r.back); };
       td.append(btn);
     }
   }
@@ -548,8 +655,8 @@ function statTable(t, head, rows, onClick) {
     r.cells.forEach((v, i) => {
       const td = row.insertCell(); td.textContent = v;
       if (head[i][1]) td.className = head[i][1];
-      if (r.pctAt === i && r.pct != null) td.classList.add(r.pct > BE ? 'pos' : 'negv');
-      if (r.unitsAt === i && Math.abs(r.units) >= 0.05) td.classList.add(r.units > 0 ? 'pos' : 'negv');
+      if (r.pctAt === i && r.pct != null) td.classList.add(r.pct > BE ? 'good' : 'bad');
+      if (r.unitsAt === i && Math.abs(r.units) >= 0.05) td.classList.add(r.units > 0 ? 'good' : 'bad');
       if (i === 0 && r.bold) td.style.fontWeight = '600';
     });
   }
@@ -584,11 +691,104 @@ function renderWork() {
   statTable($('ladder'), L, ladderRows(rows, m).map((r) => ({
     cells: [`≥ ${r.t}`, r.bets, r.record, pctTxt(r.pct), '±' + pctTxt(r.pm), sgn(r.units, f1), r.roi == null ? '–' : sgn(100 * r.roi, f1) + '%'],
     pct: r.pct, pctAt: 3, units: r.units, unitsAt: 5})));
+  ladderChart($('ladderchart'), ladderRows(rows, m), MET.find(([k]) => k === m)[1]);
 }
+
+// Win % at each threshold: a dot with its 95% range, against the break-even line.
+function ladderChart(el, rows, name) {
+  el.innerHTML = '';
+  if (!rows.length || !el.clientWidth) return;
+  const W = el.clientWidth, H = 270, m = {l: 48, r: 16, t: 14, b: 44};
+  const lows = rows.map((r) => r.pct == null ? null : r.pct - (r.pm || 0)), highs = rows.map((r) => r.pct == null ? null : r.pct + (r.pm || 0));
+  let lo = Math.min(BE, ...lows.filter((v) => v != null)), hi = Math.max(BE, ...highs.filter((v) => v != null));
+  lo = Math.max(0, Math.floor((lo - 0.02) * 20) / 20); hi = Math.min(1, Math.ceil((hi + 0.02) * 20) / 20);
+  const n = rows.length, band = (W - m.l - m.r) / n;
+  const x = (i) => m.l + band * (i + 0.5), y = (v) => m.t + (hi - v) * (H - m.t - m.b) / (hi - lo);
+  const svg = svgEl('svg', {width: W, height: H, role: 'img', 'aria-label': `Win % by ${name} threshold`}, el);
+  for (const t of niceTicks(lo, hi, 5)) {
+    svgEl('line', {x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), stroke: 'var(--grid)'}, svg);
+    svgEl('text', {x: m.l - 8, y: y(t) + 4, 'text-anchor': 'end'}, svg).textContent = Math.round(t * 100) + '%';
+  }
+  svgEl('line', {x1: m.l, x2: W - m.r, y1: y(BE), y2: y(BE), stroke: 'var(--bad)', 'stroke-width': 1.5}, svg);
+  svgEl('text', {x: W - m.r, y: y(BE) - 6, 'text-anchor': 'end', style: 'fill:var(--bad)'}, svg).textContent = 'break-even 52.4%';
+  const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor((W - m.l - m.r) / 56))));
+  rows.forEach((r, i) => {
+    if (i % every === 0) svgEl('text', {x: x(i), y: H - m.b + 18, 'text-anchor': 'middle'}, svg).textContent = '≥ ' + r.t;
+    if (r.pct == null) return;
+    svgEl('line', {x1: x(i), x2: x(i), y1: y(Math.min(1, r.pct + r.pm)), y2: y(Math.max(0, r.pct - r.pm)), stroke: 'var(--s1)',
+                   'stroke-width': 2, 'stroke-opacity': 0.35, 'stroke-linecap': 'round'}, svg);
+    svgEl('circle', {cx: x(i), cy: y(r.pct), r: 5, fill: 'var(--s1)', stroke: 'var(--surface)', 'stroke-width': 2}, svg);
+  });
+  svgEl('text', {x: (W + m.l) / 2, y: H - 4, 'text-anchor': 'middle'}, svg).textContent = `${name} threshold (bets get fewer to the right)`;
+  const tip = document.createElement('div'); tip.className = 'tip'; el.append(tip);
+  const hair = svgEl('rect', {y: m.t, height: H - m.t - m.b, width: band, fill: 'var(--accent-wash)', visibility: 'hidden'}, svg);
+  svg.insertBefore(hair, svg.firstChild);
+  const hit = svgEl('rect', {x: m.l, y: 0, width: W - m.l - m.r, height: H, fill: 'transparent'}, svg);
+  hit.addEventListener('pointermove', (ev) => {
+    const px = ev.clientX - svg.getBoundingClientRect().left, i = Math.max(0, Math.min(n - 1, Math.floor((px - m.l) / band)));
+    const r = rows[i];
+    hair.setAttribute('x', m.l + band * i); hair.setAttribute('visibility', 'visible');
+    tip.replaceChildren();
+    const a = document.createElement('div'); const b = document.createElement('b'); b.textContent = `${name} ≥ ${r.t}`; a.append(b);
+    const c = document.createElement('div'); c.textContent = `${pctTxt(r.pct)} ± ${pctTxt(r.pm)} · ${r.record} · ${sgn(r.units, f1)} units`;
+    const d = document.createElement('div'); d.textContent = `${r.bets} bets`; d.style.color = 'var(--muted)';
+    tip.append(a, c, d); tip.style.display = 'block';
+    tip.style.left = Math.min(Math.max(0, x(i) + 12), W - tip.offsetWidth) + 'px'; tip.style.top = '4px';
+  });
+  hit.addEventListener('pointerleave', () => { tip.style.display = 'none'; hair.setAttribute('visibility', 'hidden'); });
+}
+
+// The strip under the title: how the picks have done, and today's slate.
+function renderSummary() {
+  const all = DATA.graded || [], spots = DATA.spots || [], f = activeFilter(), hasF = Object.keys(f).length > 0;
+  const s = tstats(all);
+  const picksToday = spots.filter((r) => r.back), pass = picksToday.filter((r) => meets(r, f));
+  const cell = (k, v, d, cls) => {
+    const div = document.createElement('div');
+    const a = document.createElement('div'); a.className = 'v' + (cls ? ' ' + cls : ''); a.textContent = v;
+    const b = document.createElement('div'); b.className = 'k'; b.textContent = k;
+    div.append(a, b);
+    if (d) { const c = document.createElement('div'); c.className = 'd'; c.textContent = d; div.append(c); }
+    return div;
+  };
+  const items = [
+    cell(`Games on ${DATA.spots_date || 'the slate'}`, String(spots.length),
+         hasF ? `${picksToday.length} picks · ${pass.length} pass your filter` : `${picksToday.length} picks`),
+  ];
+  if (all.length) {
+    const dates = all.map((r) => r.pick_date).filter(Boolean).sort();
+    items.push(cell('Picks graded', String(s.bets), dates.length ? `${dates[0]} to ${dates[dates.length - 1]}` : ''),
+               cell('Record', s.record, 'against the pre-game line'),
+               cell('Win %', pctTxt(s.pct), `± ${pctTxt(s.pm)} · break-even 52.4%`, s.pct > BE ? 'good' : 'bad'),
+               cell('Units at −110', sgn(s.units, f1), s.roi == null ? '' : `ROI ${sgn(100 * s.roi, f1)}%`, s.units > 0 ? 'good' : s.units < 0 ? 'bad' : ''));
+  } else {
+    items.push(cell('Picks graded', '0', 'graded once games are final'));
+  }
+  $('summary').replaceChildren(...items);
+}
+
+// Tabs: one view at a time; charts are drawn when their tab is shown (they need its width).
+const TABS = ['today', 'thresholds', 'teams', 'hotcold'];
+function showTab(name, push) {
+  if (!TABS.includes(name)) name = 'today';
+  document.querySelectorAll('section[data-tab]').forEach((sec) => sec.classList.toggle('on', sec.dataset.tab === name));
+  document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  store('cbbsq_tab', name);
+  if (push !== false && location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  if (name === 'teams' && DATA.games) { renderBoard(); if (selected) selectTeam(selected, true); }
+  if (name === 'thresholds') renderWork();
+}
+function openTeam(team) {
+  showTab('teams');
+  selectTeam(team);
+  $('teamcard').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+document.querySelectorAll('#tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
+addEventListener('hashchange', () => showTab(location.hash.slice(1), false));
 
 function onFilter() {
   for (const [m] of MET) store('cbbsq_f_' + m, $('f_' + m).value === '' ? null : $('f_' + m).value);
-  renderWork(); renderSpots();
+  renderWork(); renderSpots(); renderSummary();
 }
 
 for (const [m, name] of MET) {
@@ -601,11 +801,12 @@ $('lmetric').addEventListener('input', renderWork);
 $('fclear').onclick = () => { for (const [m] of MET) $('f_' + m).value = ''; onFilter(); };
 
 renderSpots();
-renderWork();
+renderSummary();
 ['win', 'ming', 'q'].forEach((id) => $(id).addEventListener('input', renderBoard));
-let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (selected) selectTeam(selected, true); renderBoard(); }, 150); });
+let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => showTab(load('cbbsq_tab') || 'today', false), 150); });
 $('perfn').addEventListener('input', renderPerf);
 if (DATA.games) { renderBoard(); renderPerf(); } else { $('teamcard').style.display = 'none'; $('perfcard').style.display = 'none'; }
+showTab(location.hash.slice(1) || load('cbbsq_tab') || 'today', false);
 </script>
 </body>
 </html>
