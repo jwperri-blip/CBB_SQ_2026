@@ -40,7 +40,7 @@ def finish(conn, rec, away, home):
 def test_pick_saved_with_its_numbers_then_graded(conn):
     slate, today = seed(conn)
     new, graded = picks.update(conn, today=slate)  # run on game day
-    assert new == 1 and graded == 0  # earlier dates have no team with 5 prior games, so only this game
+    assert new == 2 and graded == 0  # this game's spread and total picks (earlier dates lack 5 prior games)
     p = the_pick(conn, today)
     spot = analysis.spots_for_date(conn, slate.isoformat()).iloc[0]
     assert p.pick == "Cold Hawks" and p.line == 6.5 and p.source == "saved"
@@ -51,7 +51,7 @@ def test_pick_saved_with_its_numbers_then_graded(conn):
     assert p.sq_edge == pytest.approx(spot.sq_edge) and p.sq_edge < 0
 
     finish(conn, today, 70, 74)  # Hot by 4: Cold +6.5 covers by 2.5
-    assert picks.update(conn, today=slate + timedelta(days=1)) == (0, 1)
+    assert picks.update(conn, today=slate + timedelta(days=1)) == (0, 2)
     g = the_pick(conn, today)
     assert g.result == "W" and g.cover == pytest.approx(2.5) and g.units == pytest.approx(100 / 110)
     # Graded picks never change, even if the date is recomputed later.
@@ -164,4 +164,92 @@ def test_dashboard_threshold_card_matches_python(conn, tmp_path, chromium_ok):
         summary = page.locator("#summary").inner_text()
         assert "Luck edge ≥ 2" in summary and filtered["record"] in summary
         assert f"({filtered['units']:+.1f}u)" in summary
+        assert not errors
+
+
+def test_total_pick_direction_numbers_and_grading(conn):
+    slate, today = seed(conn)
+    # Hot Owls' games: they score 10 over their shots, opponents 2 under: +8 at the 'hot' end.
+    # Cold Hawks' games: they score 10 under, opponents 2 over: -8. Make Hot's games run hotter.
+    conn.execute("UPDATE games SET home_score = home_score + 6 WHERE home_team = 'Hot Owls' AND status = 'Final'")
+    conn.commit()
+    spot = analysis.spots_for_date(conn, slate.isoformat(), market="total").iloc[0]
+    assert spot.back == "Under" and spot.combined > 0 and spot.gap == pytest.approx(spot.combined)
+    assert spot.back_line == 150.5
+    # Every number is signed so that positive agrees with the pick.
+    assert spot.opp_gap == pytest.approx((spot.away_tot_opp + spot.home_tot_opp) / 2)
+    assert spot.sq_edge == pytest.approx(150.5 - spot.proj_total)
+
+    picks.update(conn, today=slate)
+    p = picks.load_picks(conn, market="total").set_index("game_id").loc[today["game_id"]]
+    assert p.pick == "Under" and p.line == 150.5 and p.luck_edge == pytest.approx(spot.gap)
+
+    finish(conn, today, 70, 74)  # 144 total: Under 150.5 wins by 6.5
+    picks.update(conn, today=slate + timedelta(days=1))
+    g = picks.load_picks(conn, market="total").set_index("game_id").loc[today["game_id"]]
+    assert g.result == "W" and g.cover == pytest.approx(6.5) and g.units == pytest.approx(100 / 110)
+    # The spread pick is graded separately, in its own table.
+    assert the_pick(conn, today).result == "W"
+
+
+def test_total_over_and_push(conn):
+    slate, today = seed(conn)
+    conn.execute("UPDATE games SET home_score = home_score - 30 WHERE home_team = 'Hot Owls' AND status = 'Final'")
+    conn.commit()
+    spot = analysis.spots_for_date(conn, slate.isoformat(), market="total").iloc[0]
+    assert spot.back == "Over" and spot.combined < 0
+    assert spot.sq_edge == pytest.approx(spot.proj_total - 150.5)  # Over: projection above the line agrees
+    finish(conn, today, 70, 74)  # 144 points...
+    conn.execute("UPDATE games SET total_pre = 144 WHERE game_id = ?", (today["game_id"],))  # ...on a 144 line: a push
+    conn.commit()
+    picks.update(conn, today=slate + timedelta(days=5))
+    g = picks.load_picks(conn, market="total").set_index("game_id").loc[today["game_id"]]
+    assert g.pick == "Over" and g.result == "P" and g.units == 0 and g.source == "backfill"
+
+
+def test_total_picks_use_only_earlier_games(conn):
+    slate, today = seed(conn)
+    morning = analysis.spots_for_date(conn, slate.isoformat(), market="total").iloc[0]
+    db.upsert_games(conn, [game(slate, "Hot Owls", "Late Game", a=(130, 60.0, 1.9, 0.9))])
+    picks.save_picks(conn, [slate.isoformat()], today=slate, market="total")
+    p = picks.load_picks(conn, market="total").set_index("game_id").loc[today["game_id"]]
+    assert p.pick == morning.back and p.luck_edge == pytest.approx(morning.gap)
+
+
+def test_report_writes_spreads_and_totals_pages(conn, tmp_path, chromium_ok):
+    from playwright.sync_api import sync_playwright
+
+    from cbbsq.cli import main
+
+    simulate_season(conn)
+    rows = conn.execute("SELECT game_id FROM games ORDER BY game_id").fetchall()
+    for i, (gid,) in enumerate(rows):
+        conn.execute("UPDATE games SET home_spread_pre = ?, total_pre = ? WHERE game_id = ?", (-4.5 + i % 10, 130 + i % 15, gid))
+    conn.commit()
+    env = tmp_path / "test.env"
+    db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+    env.write_text(f"CBBSQ_DB={db_path}\n")
+    last = conn.execute("SELECT MAX(game_date) FROM games").fetchone()[0]
+    out = tmp_path / "reports" / "dashboard.html"
+    main(["--env", str(env), "report", "--out", str(out), "--spots-date", last])
+    totals = out.with_name("dashboard-totals.html")
+    assert out.exists() and totals.exists()
+    g = picks.graded(picks.load_picks(conn, market="total"))
+    assert len(g) > 50 and set(g["pick"]) <= {"Over", "Under"}
+    with sync_playwright() as p:
+        page = p.chromium.launch().new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(totals.resolve().as_uri() + "#today")
+        heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_text_contents()]
+        assert heads[:7] == ["Game", "Bet", "SQ proj.", "Luck edge", "From opp. shooting", "Last 5", "SQ edge"]
+        assert page.locator("#spots tbody tr").first.locator("td").nth(1).inner_text().split()[0] in ("Over", "Under")
+        # Each page keeps its own filter; the header switch keeps the tab.
+        page.goto(totals.resolve().as_uri() + "#thresholds")
+        page.fill("#f_sq_edge", "1")
+        before = picks.filter_picks(g[g["pick_date"] < last], {"sq_edge": 1})  # season to date stops before the slate
+        assert picks.stats(before)["record"] in page.locator("#summary").inner_text()
+        page.click("#mswitch a")
+        page.wait_for_url("**/dashboard.html#thresholds")
+        assert page.input_value("#f_sq_edge") == ""
         assert not errors

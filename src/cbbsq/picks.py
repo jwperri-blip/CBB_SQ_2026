@@ -1,5 +1,9 @@
 """Save the regression spots pick for every game, grade it, and find the thresholds that win.
 
+Two markets, each in its own table: spreads (``spot_picks``: bet the less lucky team) and totals
+(``total_picks``: Under when both teams' games have scored more than their shots were worth, Over when
+less; see ``analysis.total_spots``). Both use the four numbers below and the same threshold tools.
+
 One pick per game: the Bet from the regression spots table (the less lucky team) against its pre-game
 line, saved with the four numbers behind it:
 
@@ -32,26 +36,35 @@ METRICS = {
     "sq_edge": "SQ edge",
 }
 _SPOT_COLS = {"luck_edge": "gap", "opp_edge": "opp_gap", "last5_edge": "l5_gap", "sq_edge": "sq_edge"}
+# Each market keeps its own picks and its own record of which dates have been computed.
+MARKETS = {"spread": ("spot_picks", "spot_pick_runs"), "total": ("total_picks", "total_pick_runs")}
+
+
+def metric_names(market: str = "spread") -> dict:
+    return {**METRICS, "opp_edge": "From opp. shooting"} if market == "total" else METRICS
 WIN_UNITS = 100 / 110  # profit on a winning bet at -110
 BREAKEVEN = 110 / 210  # 52.4%
 
 
-def _dates_to_compute(conn: sqlite3.Connection, today: date) -> list[str]:
+def _dates_to_compute(conn: sqlite3.Connection, today: date, market: str = "spread") -> list[str]:
     """Dates never computed, dates with games not yet final, and the last two days (lines can arrive late)."""
+    runs = MARKETS[market][1]
     rows = conn.execute(
         "SELECT g.game_date, MAX(CASE WHEN g.status IN ('Final','Postponed','Canceled') THEN 0 ELSE 1 END), "
-        "r.pick_date FROM games g LEFT JOIN spot_pick_runs r ON r.pick_date = g.game_date GROUP BY g.game_date"
+        f"r.pick_date FROM games g LEFT JOIN {runs} r ON r.pick_date = g.game_date GROUP BY g.game_date"
     ).fetchall()
     recent = (today - timedelta(days=1)).isoformat()
     return sorted(d for d, unfinished, done in rows if done is None or unfinished or d >= recent)
 
 
 def save_picks(conn: sqlite3.Connection, dates: Optional[Iterable[str]] = None, *, today: Optional[date] = None,
-               min_games: int = 5, recent: int = 5) -> None:
+               min_games: int = 5, recent: int = 5, market: str = "spread") -> None:
     """Compute and store the pick for every game with a line (all dates that need it by default).
     Graded picks never change, and a pick first saved on game day keeps its 'saved' mark."""
     today = today or date.today()
-    dates = sorted(set(dates)) if dates is not None else _dates_to_compute(conn, today)
+    table, runs = MARKETS[market]
+    spots_fn = analysis.total_spots if market == "total" else analysis.regression_spots
+    dates = sorted(set(dates)) if dates is not None else _dates_to_compute(conn, today, market)
     if not dates:
         return
     tg_all = analysis.load_team_games(conn)
@@ -59,31 +72,33 @@ def save_picks(conn: sqlite3.Connection, dates: Optional[Iterable[str]] = None, 
     for on in dates:
         d = date.fromisoformat(on)
         prior = tg_all[(tg_all["season"] == season_for(d)) & (tg_all["game_date"] < on)]
-        spots = analysis.regression_spots(prior, analysis.load_slate(conn, on), min_games=min_games, recent=recent)
+        spots = spots_fn(prior, analysis.load_slate(conn, on), min_games=min_games, recent=recent)
         source = "saved" if d >= today else "backfill"
         for r in spots.itertuples(index=False):
             if pd.isna(r.back) or pd.isna(r.back_line):
                 continue
             vals = [None if pd.isna(getattr(r, _SPOT_COLS[m])) else float(getattr(r, _SPOT_COLS[m])) for m in METRICS]
             conn.execute(
-                "INSERT INTO spot_picks (game_id, pick_date, pick, line, luck_edge, opp_edge, last5_edge, sq_edge, "
+                f"INSERT INTO {table} (game_id, pick_date, pick, line, luck_edge, opp_edge, last5_edge, sq_edge, "
                 "source, saved_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_id) DO UPDATE SET "
                 "pick = excluded.pick, line = excluded.line, luck_edge = excluded.luck_edge, "
                 "opp_edge = excluded.opp_edge, last5_edge = excluded.last5_edge, sq_edge = excluded.sq_edge, "
                 "saved_at = excluded.saved_at, "
-                "source = CASE WHEN spot_picks.source = 'saved' THEN 'saved' ELSE excluded.source END "
-                "WHERE spot_picks.result IS NULL",
+                f"source = CASE WHEN {table}.source = 'saved' THEN 'saved' ELSE excluded.source END "
+                f"WHERE {table}.result IS NULL",
                 [r.game_id, on, r.back, float(r.back_line), *vals, source, stamp])
-        conn.execute("INSERT INTO spot_pick_runs (pick_date, computed_at) VALUES (?, ?) "
+        conn.execute(f"INSERT INTO {runs} (pick_date, computed_at) VALUES (?, ?) "
                      "ON CONFLICT(pick_date) DO UPDATE SET computed_at = excluded.computed_at", (on, stamp))
     conn.commit()
 
 
-def grade_picks(conn: sqlite3.Connection) -> int:
-    """Grade every ungraded pick whose game is final (void it if the game was postponed or canceled)."""
+def grade_picks(conn: sqlite3.Connection, market: str = "spread") -> int:
+    """Grade every ungraded pick whose game is final (void it if the game was postponed or canceled).
+    Spreads: the team's margin plus its line. Totals: total points against the line, Over or Under."""
+    table = MARKETS[market][0]
     rows = conn.execute(
         "SELECT p.game_id, p.pick, p.line, g.status, g.home_team, g.away_score, g.home_score "
-        "FROM spot_picks p JOIN games g ON g.game_id = p.game_id "
+        f"FROM {table} p JOIN games g ON g.game_id = p.game_id "
         "WHERE p.result IS NULL AND g.status IN ('Final','Postponed','Canceled')"
     ).fetchall()
     stamp = db.utcnow()
@@ -94,11 +109,14 @@ def grade_picks(conn: sqlite3.Connection) -> int:
         elif r["away_score"] is None or r["home_score"] is None:
             continue
         else:
-            margin = r["home_score"] - r["away_score"]
-            cover = (margin if r["pick"] == r["home_team"] else -margin) + r["line"]
+            if r["pick"] in ("Over", "Under"):
+                cover = (r["away_score"] + r["home_score"] - r["line"]) * (1 if r["pick"] == "Over" else -1)
+            else:
+                margin = r["home_score"] - r["away_score"]
+                cover = (margin if r["pick"] == r["home_team"] else -margin) + r["line"]
             result = "W" if cover > 0 else "L" if cover < 0 else "P"
             units = WIN_UNITS if result == "W" else -1.0 if result == "L" else 0.0
-        conn.execute("UPDATE spot_picks SET result = ?, cover = ?, units = ?, graded_at = ? WHERE game_id = ?",
+        conn.execute(f"UPDATE {table} SET result = ?, cover = ?, units = ?, graded_at = ? WHERE game_id = ?",
                      (result, cover, units, stamp, r["game_id"]))
         graded += 1
     conn.commit()
@@ -106,23 +124,28 @@ def grade_picks(conn: sqlite3.Connection) -> int:
 
 
 def update(conn: sqlite3.Connection, *, today: Optional[date] = None) -> tuple[int, int]:
-    """Save any picks that are due, then grade whatever has finished. Returns (new picks, newly graded)."""
-    before = conn.execute("SELECT COUNT(*) FROM spot_picks").fetchone()[0]
-    save_picks(conn, today=today)
-    new = conn.execute("SELECT COUNT(*) FROM spot_picks").fetchone()[0] - before
-    return new, grade_picks(conn)
+    """Save any picks that are due and grade whatever has finished, for spreads and totals.
+    Returns (new picks, newly graded) across both."""
+    new = graded_now = 0
+    for market, (table, _) in MARKETS.items():
+        before = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        save_picks(conn, today=today, market=market)
+        new += conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] - before
+        graded_now += grade_picks(conn, market)
+    return new, graded_now
 
 
-def load_picks(conn: sqlite3.Connection, *, season: Optional[int] = None, saved_only: bool = False) -> pd.DataFrame:
-    q = "SELECT * FROM spot_picks" + (" WHERE source = 'saved'" if saved_only else "")
+def load_picks(conn: sqlite3.Connection, *, season: Optional[int] = None, saved_only: bool = False,
+               market: str = "spread") -> pd.DataFrame:
+    q = f"SELECT * FROM {MARKETS[market][0]}" + (" WHERE source = 'saved'" if saved_only else "")
     df = pd.read_sql_query(q + " ORDER BY pick_date, game_id", conn)
     if season and len(df):
         df = df[df["pick_date"].map(lambda v: season_for(date.fromisoformat(v))) == season]
     return df
 
 
-def results_for_date(conn: sqlite3.Connection, on: str) -> pd.DataFrame:
-    return pd.read_sql_query("SELECT game_id, result, cover FROM spot_picks WHERE pick_date = ? "
+def results_for_date(conn: sqlite3.Connection, on: str, market: str = "spread") -> pd.DataFrame:
+    return pd.read_sql_query(f"SELECT game_id, result, cover FROM {MARKETS[market][0]} WHERE pick_date = ? "
                              "AND result IS NOT NULL", conn, params=[on])
 
 

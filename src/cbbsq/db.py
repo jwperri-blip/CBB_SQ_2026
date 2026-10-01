@@ -6,6 +6,7 @@
 * ``team_games``  - view with one row per team per game, from that team's perspective
 * ``spot_picks``  - the regression spots pick for each game with its numbers, graded once the game is final
 * ``spot_pick_runs`` - when picks were last computed for each date
+* ``total_picks`` / ``total_pick_runs`` - the same for over / under picks
 """
 
 from __future__ import annotations
@@ -90,6 +91,31 @@ CREATE TABLE IF NOT EXISTS spot_picks (
 CREATE INDEX IF NOT EXISTS idx_spot_picks_date ON spot_picks(pick_date);
 
 CREATE TABLE IF NOT EXISTS spot_pick_runs (
+    pick_date TEXT PRIMARY KEY,
+    computed_at TEXT NOT NULL
+);
+
+-- Totals: the same columns; pick is 'Over' / 'Under', line the pre-game total, and the numbers are
+-- measured in the pick's direction (see analysis.total_spots).
+CREATE TABLE IF NOT EXISTS total_picks (
+    game_id TEXT PRIMARY KEY,
+    pick_date TEXT NOT NULL,
+    pick TEXT NOT NULL,
+    line REAL NOT NULL,
+    luck_edge REAL,
+    opp_edge REAL,
+    last5_edge REAL,
+    sq_edge REAL,
+    source TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    result TEXT,
+    cover REAL,
+    units REAL,
+    graded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_total_picks_date ON total_picks(pick_date);
+
+CREATE TABLE IF NOT EXISTS total_pick_runs (
     pick_date TEXT PRIMARY KEY,
     computed_at TEXT NOT NULL
 );

@@ -95,6 +95,8 @@ cbbsq trending                        # heating up: last 5 vs season   (--coolin
 cbbsq luck                            # results beating their shot quality (--unlucky for the reverse)
 cbbsq spots                           # today's games: which side luck says to bet (--date, --details)
 cbbsq grade                           # which luck edge / last 5 / SQ edge thresholds have won (--target 55)
+cbbsq spots --totals                  # the same for over / under: which side of the total to bet
+cbbsq grade --totals                  # thresholds for the over / under picks
 cbbsq report                          # reports/dashboard.html, an interactive dashboard
 cbbsq export                          # CSVs for Excel / Google Sheets in data/exports/
 ```
@@ -129,6 +131,12 @@ cbbsq grade --metric sq_edge --season 2026
 ```
 
 The dashboard's **Find your threshold** card does the same interactively: set a target win %, click a number's row to add it to the filter, stack filters, and the spots table ticks today's games that pass. The ± next to each win % is its 95% range. A threshold found by looking back at results flatters itself, so trust it once the low end of the range clears 52.4%, and check that it holds on new games or the next season.
+
+### Totals (over / under)
+
+The same system runs separately for totals. Each team's games are compared with what their shots were worth at both ends (its own shot-making plus its opponents'); when the two teams' games have been scoring more than their shots deserved, the total may be inflated, so the pick is the **Under**, and the **Over** when less. The four numbers are measured in the pick's direction (positive agrees with the bet): **Luck edge** (how far the games have run above or below their shots, per 100 possessions), **From opp. shooting**, **Last 5**, and **SQ edge** (ShotQuality's pregame projection turned into a total, minus the line, on the pick's side). Picks are saved to their own `total_picks` table, graded on total points against the pre-game total, and `cbbsq grade --totals` / `cbbsq spots --totals` work exactly like the spreads versions.
+
+`cbbsq report` writes two pages side by side: `reports/dashboard.html` (spreads) and `reports/dashboard-totals.html` (totals), with a Spreads / Totals switch in the header. Each page keeps its own threshold filter.
 
 Daily routine: `cbbsq collect` (yesterday's final scores), `cbbsq collect --date today` (today's games and lines), then `cbbsq report`, which grades yesterday's picks and saves today's.
 

@@ -265,18 +265,58 @@ def _result_text(result, cover) -> str:
     return f"{result} {cover:+g}" if cover is not None and pd.notna(cover) else str(result)
 
 
+def _print_total_spots(spots: pd.DataFrame, results: pd.DataFrame, on: str, args) -> None:
+    view = pd.DataFrame({
+        "game": spots["away_team"] + " @ " + spots["home_team"],
+        "bet": [f"{b} {v:g}" if isinstance(b, str) and pd.notna(v) else f"no pick (under {args.min_games} games)"
+                for b, v in zip(spots["back"], spots["back_line"])],
+        "sq_proj": spots["proj_total"].map(lambda v: "-" if pd.isna(v) else f"{v:.1f}"),
+        "luck_edge": spots["gap"], "from_opp_shooting": spots["opp_gap"], f"last_{args.recent}": spots["l5_gap"],
+        "sq_edge": spots["sq_edge"],
+    })
+    if len(results):
+        view["result"] = [_result_text(*results.loc[g][["result", "cover"]]) if g in results.index else "-"
+                          for g in spots["game_id"]]
+    print(f"Over / under spots for {on}. Under when both teams' games have scored more than their shots were worth, Over when less.\n"
+          f"  sq_proj            ShotQuality's pregame projection turned into a total\n"
+          f"  luck_edge          how far these teams' games have run above / below their shots, per 100 possessions\n"
+          f"  from_opp_shooting  the part of that edge from opponents' shooting (positive = agrees with the bet)\n"
+          f"  last_{args.recent}             the same edge over the last {args.recent} games (positive = agrees)\n"
+          f"  sq_edge            points the projection is on the bet's side of the line"
+          + ("\n  result             how the bet did (W/L/P and points beat the total by)" if len(results) else "") + "\n")
+    for c in ("luck_edge", "from_opp_shooting", f"last_{args.recent}", "sq_edge"):
+        view[c] = view[c].map(lambda v, c=c: "-" if pd.isna(v) else (f"{v:.1f}" if c == "luck_edge" else f"{v:+.1f}"))
+    _print(view.set_index("game"), rows=args.top)
+    if args.details:
+        print("\nPoints per 100 possessions above (+) or below (-) the shots in each team's games:")
+        for r in spots.head(args.top or len(spots)).itertuples():
+            print(f"\n{r.away_team} @ {r.home_team}  (total: {r.total_pre if r.total_pre is not None else '-'})")
+            for side in ("away", "home"):
+                name, luck = getattr(r, f"{side}_team"), getattr(r, f"{side}_tot_luck")
+                if pd.isna(luck):
+                    print(f"  {name}: no games yet this season")
+                    continue
+                print(f"  {name} ({getattr(r, f'{side}_G')} games): {luck:+.1f} = {getattr(r, f'{side}_tot_shoot'):+.1f} own "
+                      f"shooting, {getattr(r, f'{side}_tot_opp'):+.1f} opponents' shooting; last {args.recent}: "
+                      f"{getattr(r, f'{side}_tot_recent'):+.1f}")
+
+
 def cmd_spots(settings: Settings, args) -> None:
     on = (args.date or date.today()).isoformat()
+    market = "total" if args.totals else "spread"
     conn = db.connect(settings.db_path)
     _update_picks(conn)
-    spots = analysis.spots_for_date(conn, on, min_games=args.min_games, recent=args.recent)
-    results = picks.results_for_date(conn, on).set_index("game_id")
+    spots = analysis.spots_for_date(conn, on, min_games=args.min_games, recent=args.recent, market=market)
+    results = picks.results_for_date(conn, on, market).set_index("game_id")
     conn.close()
     if spots.empty:
         print(f"No games stored for {on}. Run `cbbsq collect --date {on}` first.")
         return
     if args.min_gap:
         spots = spots[spots["gap"] >= args.min_gap]
+    if market == "total":
+        _print_total_spots(spots, results, on, args)
+        return
     fade = spots["away_team"].where(spots["back"] == spots["home_team"], spots["home_team"]).where(spots["back"].notna())
     bet = spots["back"] + spots["back_line"].map(lambda v: "" if pd.isna(v) else (" PK" if v == 0 else f" {v:+g}"))
     view = pd.DataFrame({
@@ -332,7 +372,9 @@ def _stats_view(df: pd.DataFrame) -> pd.DataFrame:
 def cmd_grade(settings: Settings, args) -> None:
     conn = db.connect(settings.db_path)
     _update_picks(conn)
-    allp = picks.load_picks(conn, season=args.season, saved_only=args.saved_only)
+    market = "total" if args.totals else "spread"
+    names = picks.metric_names(market)
+    allp = picks.load_picks(conn, season=args.season, saved_only=args.saved_only, market=market)
     conn.close()
     g = picks.graded(allp)
     if g.empty:
@@ -344,18 +386,19 @@ def cmd_grade(settings: Settings, args) -> None:
     base = picks.filter_picks(g, mins)
     filtered = any(v is not None for v in mins.values())
     overall = picks.stats(g)
-    print(f"Every regression spots Bet, graded against its pre-game line at -110 (break-even {picks.BREAKEVEN:.1%}).")
+    what = "over / under Bet, graded against its pre-game total" if market == "total" else "regression spots Bet, graded against its pre-game line"
+    print(f"Every {what} at -110 (break-even {picks.BREAKEVEN:.1%}).")
     print(f"All picks: {overall['bets']} bets, {overall['record']}, {_pct(overall['win_pct'])}, {overall['units']:+.1f} units."
           f" {int(allp['result'].isna().sum())} waiting on results.")
     if filtered:
         s = picks.stats(base)
-        rule = " and ".join(f"{picks.METRICS[m]} >= {v:g}" for m, v in mins.items() if v is not None)
+        rule = " and ".join(f"{names[m]} >= {v:g}" for m, v in mins.items() if v is not None)
         print(f"With {rule}: {s['bets']} bets, {s['record']}, {_pct(s['win_pct'])} "
               f"(+/-{s['plus_minus']:.1%}), {s['units']:+.1f} units." if s["bets"] else f"With {rule}: no bets.")
     print(f"\nLowest threshold that wins {target:.0%} or more over at least {args.min_bets} bets"
           + (" (on top of the filter above)" if filtered else "") + ":\n")
     rows = []
-    for m, name in picks.METRICS.items():
+    for m, name in names.items():
         hit = picks.threshold_for(base, m, target, args.min_bets)
         rows.append({"metric": name, "bet when": ("any value" if hit["any"] else f">= {hit['threshold']:g}") if hit else "not reached",
                      **({k: hit[k] for k in ("bets", "record", "win_pct", "plus_minus", "units", "roi")} if hit else
@@ -366,7 +409,7 @@ def cmd_grade(settings: Settings, args) -> None:
         lad = picks.ladder(base, m)
         if lad.empty:
             continue
-        print(f"\n{picks.METRICS[m]}: win % at each threshold")
+        print(f"\n{names[m]}: win % at each threshold")
         lad["threshold"] = lad["threshold"].map(lambda v: f">= {v:g}")
         _print(_stats_view(lad).set_index("threshold"))
     print("\n+/- is the 95% range around the win %. A threshold picked by looking at results flatters itself:"
@@ -393,16 +436,22 @@ def cmd_report(settings: Settings, args) -> None:
 
     tg = _team_games(settings, args)
     on = (args.spots_date or date.today()).isoformat()
+    out = Path(args.out)
+    pages = {"spread": out, "total": out.with_name(f"{out.stem}-totals{out.suffix}")}
     conn = db.connect(settings.db_path)
     _update_picks(conn)
-    spots = analysis.spots_for_date(conn, on)
-    results = picks.results_for_date(conn, on)
-    if len(spots) and len(results):
-        spots = spots.merge(results, on="game_id", how="left")
-    graded = picks.graded(picks.load_picks(conn, season=args.season))
+    for market, path in pages.items():
+        spots = analysis.spots_for_date(conn, on, market=market)
+        results = picks.results_for_date(conn, on, market)
+        if len(spots) and len(results):
+            spots = spots.merge(results, on="game_id", how="left")
+        graded = picks.graded(picks.load_picks(conn, season=args.season, market=market))
+        other = pages["total" if market == "spread" else "spread"].name
+        write_report(tg, path, min_games=args.min_games, spots=spots, spots_date=on, graded=graded,
+                     market=market, other_page=other)
     conn.close()
-    path = write_report(tg, Path(args.out), min_games=args.min_games, spots=spots, spots_date=on, graded=graded)
-    print(f"Dashboard written to {path.resolve()} - open it in your browser.")
+    print(f"Dashboard written to {pages['spread'].resolve()}\n"
+          f"Totals page written to {pages['total'].resolve()}\nOpen either in your browser; the header switches between them.")
 
 
 # ---------------------------------------------------------------------- main
@@ -493,6 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--recent", type=int, default=5, help="games in the recent-luck column")
     sp.add_argument("--min-gap", type=float, help="only show games with at least this luck edge")
     sp.add_argument("--details", action="store_true", help="also print each team's luck breakdown")
+    sp.add_argument("--totals", action="store_true", help="over / under picks instead of spreads")
     sp.add_argument("--top", type=int, help="show only the first N rows")
     sp.set_defaults(func=cmd_spots)
 
@@ -501,11 +551,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--min-bets", type=int, default=50, help="fewest bets a threshold must have (default 50)")
     sp.add_argument("--metric", choices=list(picks.METRICS), help="only show this metric's win %% ladder")
     sp.add_argument("--min-luck", type=float, help="only picks with at least this luck edge")
-    sp.add_argument("--min-opp", type=float, help="only picks with at least this much from opp. misses")
+    sp.add_argument("--min-opp", type=float, help="only picks with at least this much from opp. misses (opp. shooting for totals)")
     sp.add_argument("--min-last5", type=float, help="only picks with at least this last-5 edge")
     sp.add_argument("--min-sq", type=float, help="only picks with at least this SQ edge")
     sp.add_argument("--season", type=int, help="season by end year, e.g. 2026 for 2025-26")
     sp.add_argument("--saved-only", action="store_true", help="only picks saved on game day (no filled-in history)")
+    sp.add_argument("--totals", action="store_true", help="grade the over / under picks instead of spreads")
     sp.set_defaults(func=cmd_grade)
 
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")

@@ -65,6 +65,12 @@
   .tabs button:hover { color: var(--text); }
   .tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
   section[data-tab] { display: none; }
+  /* market-specific text: each page shows only its own */
+  body[data-market="total"] [data-market="spread"], body:not([data-market="total"]) [data-market="total"] { display: none; }
+  .mswitch { display: inline-flex; gap: 2px; background: var(--track); border-radius: 9px; padding: 3px; margin-left: 14px; vertical-align: middle; }
+  .mswitch a, .mswitch span { font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 7px; text-decoration: none; color: var(--text-2); }
+  .mswitch a:hover { color: var(--text); }
+  .mswitch span[aria-current] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
   section[data-tab].on { display: block; }
 
   /* cards, headings, controls */
@@ -74,7 +80,7 @@
   h2 { font-size: 16px; margin: 0; }
   h3 { font-size: 12px; margin: 16px 0 8px; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 14px; }
-  .controls label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
+  .controls label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; white-space: nowrap; }
   select, input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; }
   input:focus, select:focus { outline: 2px solid var(--s1); outline-offset: -1px; }
   .ctlsep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
@@ -136,7 +142,7 @@
 <body>
 <main>
   <header>
-    <h1>CBB Shot Quality</h1>
+    <h1>CBB Shot Quality<nav class="mswitch" id="mswitch" aria-label="Market"></nav></h1>
     <p class="sub" id="sub"></p>
   </header>
   <div class="summary" id="summary"></div>
@@ -152,10 +158,19 @@
   <div class="card" id="spotscard">
     <div class="card-head">
       <h2 id="spotstitle">Regression spots</h2>
-      <p class="sub">Bet the team that has been less lucky. Lucky teams tend to come back to earth.</p>
+      <p class="sub" data-market="spread">Bet the team that has been less lucky. Lucky teams tend to come back to earth.</p>
+      <p class="sub" data-market="total">Under when both teams' games have scored more than their shots were worth; Over when less.</p>
     </div>
     <div class="tablewrap" style="max-height:620px"><table id="spots"><thead></thead><tbody></tbody></table></div>
-    <details class="how"><summary>What the columns mean</summary><ul>
+    <details class="how" data-market="total"><summary>What the columns mean</summary><ul>
+      <li><b>SQ proj.:</b> ShotQuality's pregame projection turned into a total for this game.</li>
+      <li><b>Luck edge:</b> how many points per 100 possessions these two teams' games have scored above (Under) or below (Over) what the shots were worth this season, both ends counted. Bigger = stronger spot.</li>
+      <li><b>From opp. shooting:</b> how much of that edge comes from opponents' shooting. Blue (positive) agrees with the bet.</li>
+      <li><b>Last 5:</b> the same edge over each team's last 5 games. Blue means recent games agree.</li>
+      <li><b>SQ edge:</b> how many points ShotQuality's projected total is on the bet's side of the line. Blue means it agrees.</li>
+      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. The <b>Thresholds</b> tab shows which numbers have won; games that pass your filter there get a ✓ here.</li>
+    </ul></details>
+    <details class="how" data-market="spread"><summary>What the columns mean</summary><ul>
       <li><b>Luck edge:</b> how many more points per 100 possessions the team you're betting against has gained from luck this season (points scored and allowed vs. what the shots were worth). Bigger = stronger spot.</li>
       <li><b>From opp. misses:</b> how much of that edge comes from opponents missing good shots, which is mostly chance. Blue (positive) is better.</li>
       <li><b>Last 5:</b> the same edge over the last 5 games. Blue means recent games agree.</li>
@@ -169,14 +184,14 @@
   <div class="card" id="workcard">
     <div class="card-head">
       <h2>Find your threshold</h2>
-      <p class="sub" id="worksub">Every Bet so far, graded against its pre-game line at −110. Break-even is 52.4%.</p>
+      <p class="sub" id="worksub"><span data-market="spread">Every Bet so far, graded against its pre-game line</span><span data-market="total">Every Over / Under so far, graded against its pre-game total</span> at −110. Break-even is 52.4%.</p>
     </div>
     <div class="controls">
       <label>Target win %<input id="tgt" type="number" min="50" max="80" step="0.5" value="55" style="width:90px"></label>
       <label>Min. bets<input id="tminb" type="number" min="1" step="5" value="50" style="width:90px"></label>
       <span class="ctlsep"></span>
       <label>Luck edge ≥<input id="f_luck_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
-      <label>From opp. misses ≥<input id="f_opp_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
+      <label><span id="f_opp_label">From opp. misses</span> ≥<input id="f_opp_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
       <label>Last 5 ≥<input id="f_last5_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
       <label>SQ edge ≥<input id="f_sq_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
       <button id="fclear" type="button" class="linkbtn">Clear filter</button>
@@ -192,7 +207,8 @@
     <details class="how"><summary>How to use it</summary><ul>
       <li>Set the win % you want. The first table shows, for each number, the lowest value that has hit it. Click a row to add it to the filter; the <b>Today</b> tab then ticks the games that qualify.</li>
       <li>The "≥" boxes stack, so you can test combinations such as Luck edge ≥ 4 and Last 5 ≥ 0. Everything on this tab then looks only at picks that pass the filter.</li>
-      <li><b>SQ edge:</b> how many points ShotQuality's pregame projection likes the same bet by against the line. Negative means the projection prefers the other side.</li>
+      <li data-market="spread"><b>SQ edge:</b> how many points ShotQuality's pregame projection likes the same bet by against the line. Negative means the projection prefers the other side.</li>
+      <li data-market="total"><b>SQ edge:</b> how many points ShotQuality's projected total is on the bet's side of the line. Negative means the projection prefers the other side.</li>
       <li><b>±:</b> the 95% range around the win %. A threshold found by looking back at results flatters itself, so trust it once the low end clears 52.4%, and check that it holds on new games.</li>
     </ul></details>
   </div>
@@ -520,7 +536,8 @@ const spotsOpen = new Set();
 
 function renderSpots() {
   const spots = DATA.spots || [];
-  $('spotstitle').textContent = `Regression spots · ${DATA.spots_date || ''}`;
+  const TOT = DATA.market === 'total';
+  $('spotstitle').textContent = `${TOT ? 'Over / under spots' : 'Regression spots'} · ${DATA.spots_date || ''}`;
   const t = $('spots'), head = t.tHead, body = t.tBodies[0];
   head.innerHTML = ''; body.innerHTML = '';
   const line = (v) => v == null ? '' : ' ' + (v === 0 ? 'PK' : (v > 0 ? '+' : '') + v);
@@ -528,10 +545,12 @@ function renderSpots() {
   // v: sort value; f: display; text columns sort A-Z first, numbers high-to-low first.
   const SC = [
     {k: 'game', t: 'Game', v: (r) => `${r.away_team} @ ${r.home_team}`, cls: 'l', text: true},
-    {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => r.back ? r.back + line(r.back_line) : 'No pick (under 5 games)', cls: 'l', text: true, bold: true},
-    {k: 'fade', t: 'Against', v: fade, f: (r) => fade(r) || '–', cls: 'l', text: true},
+    TOT ? {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => r.back ? `${r.back} ${r.back_line}` : 'No pick (under 5 games)', cls: 'l', text: true, bold: true}
+        : {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => r.back ? r.back + line(r.back_line) : 'No pick (under 5 games)', cls: 'l', text: true, bold: true},
+    TOT ? {k: 'proj_total', t: 'SQ proj.', v: (r) => r.proj_total, f: (r) => r.proj_total == null ? '–' : f1(r.proj_total)}
+        : {k: 'fade', t: 'Against', v: fade, f: (r) => fade(r) || '–', cls: 'l', text: true},
     {k: 'gap', t: 'Luck edge', v: (r) => r.gap, f: (r) => r.gap == null ? '–' : f1(r.gap), bar: 'size'},
-    {k: 'opp_gap', t: 'From opp. misses', v: (r) => r.opp_gap, f: (r) => sgn(r.opp_gap, f1), bar: 'signed'},
+    {k: 'opp_gap', t: OPP_LABEL, v: (r) => r.opp_gap, f: (r) => sgn(r.opp_gap, f1), bar: 'signed'},
     {k: 'l5_gap', t: 'Last 5', v: (r) => r.l5_gap, f: (r) => sgn(r.l5_gap, f1), bar: 'signed'},
     {k: 'sq_edge', t: 'SQ edge', v: (r) => r.sq_edge, f: (r) => sgn(r.sq_edge, f1), bar: 'signed'},
   ];
@@ -565,6 +584,11 @@ function renderSpots() {
   });
   const teamLine = (r, side) => {
     const name = r[`${side}_team`], G = r[`${side}_G`];
+    if (TOT) {
+      if (r[`${side}_tot_luck`] == null) return `${name}: no games yet this season.`;
+      return `${name} (${G} games): its games scored ${sgn(r[`${side}_tot_luck`], f1)} per 100 poss. vs. their shots `
+        + `(${sgn(r[`${side}_tot_shoot`], f1)} own shooting, ${sgn(r[`${side}_tot_opp`], f1)} opponents' shooting). Last 5: ${sgn(r[`${side}_tot_recent`], f1)}.`;
+    }
     if (r[`${side}_luck`] == null) return `${name}: no games yet this season.`;
     return `${name} (${G} games): luck ${sgn(r[`${side}_luck`], f1)} per 100 poss. (${sgn(r[`${side}_shoot_luck`], f1)} own shooting, `
       + `${sgn(r[`${side}_opp_luck`], f1)} opponents missing). Last 5: ${sgn(r[`${side}_luck_recent`], f1)}.`;
@@ -595,19 +619,43 @@ function renderSpots() {
     if (!open) continue;
     const d = body.insertRow(); d.className = 'detail';
     const td = d.insertCell(); td.colSpan = SC.length;
-    for (const txt of [teamLine(r, 'away'), teamLine(r, 'home'),
-                       `Pre-game line: ${r.line || '–'} · Total: ${r.total_pre ?? '–'} · Status: ${r.status || '–'}`]) {
+    const facts = TOT ? `Pre-game total: ${r.total_pre ?? '–'} · SQ projection: ${r.proj_total == null ? '–' : f1(r.proj_total)} · Status: ${r.status || '–'}`
+                      : `Pre-game line: ${r.line || '–'} · Total: ${r.total_pre ?? '–'} · Status: ${r.status || '–'}`;
+    for (const txt of [teamLine(r, 'away'), teamLine(r, 'home'), facts]) {
       const p = document.createElement('div'); p.textContent = txt; td.append(p);
     }
-    if (r.back && DATA.logs[r.back]) {
-      const btn = document.createElement('button'); btn.textContent = `Open ${r.back}'s trends`;
-      btn.onclick = (ev) => { ev.stopPropagation(); openTeam(r.back); };
+    // Spreads: the team to bet. Totals: both teams.
+    const links = (TOT ? [r.away_team, r.home_team] : [r.back]).filter((t) => t && DATA.logs[t]);
+    links.forEach((team, i) => {
+      if (i) td.append(document.createTextNode(' · '));
+      const btn = document.createElement('button'); btn.textContent = `Open ${team}'s trends`;
+      btn.onclick = (ev) => { ev.stopPropagation(); openTeam(team); };
       td.append(btn);
-    }
+    });
   }
 }
 
-const MET = [['luck_edge', 'Luck edge', 'gap'], ['opp_edge', 'From opp. misses', 'opp_gap'],
+const MARKET = DATA.market === 'total' ? 'total' : 'spread';
+const KP = MARKET === 'total' ? 'cbbsq_total_' : 'cbbsq_';  // each page keeps its own filter and settings
+const OPP_LABEL = MARKET === 'total' ? 'From opp. shooting' : 'From opp. misses';
+document.body.dataset.market = MARKET;
+document.title = MARKET === 'total' ? 'CBB Shot Quality · Totals' : 'CBB Shot Quality · Spreads';
+$('f_opp_label').textContent = OPP_LABEL;
+// Header switch between the spreads and totals pages (two files written side by side).
+(function () {
+  const sw = $('mswitch');
+  if (!DATA.other_page) { sw.style.display = 'none'; return; }
+  for (const [m, label] of [['spread', 'Spreads'], ['total', 'Totals']]) {
+    if (m === MARKET) {
+      const cur = document.createElement('span'); cur.textContent = label; cur.setAttribute('aria-current', 'page'); sw.append(cur);
+    } else {
+      const a = document.createElement('a'); a.textContent = label; a.href = DATA.other_page;
+      a.onclick = () => { a.href = DATA.other_page + location.hash; };  // keep the same tab
+      sw.append(a);
+    }
+  }
+})();
+const MET = [['luck_edge', 'Luck edge', 'gap'], ['opp_edge', OPP_LABEL, 'opp_gap'],
              ['last5_edge', 'Last 5', 'l5_gap'], ['sq_edge', 'SQ edge', 'sq_edge']];
 const BE = 110 / 210;
 const pctTxt = (v) => v == null || isNaN(v) ? '–' : (100 * v).toFixed(1) + '%';
@@ -788,7 +836,7 @@ function renderSummary() {
   const seasonGroup = group(season ? `${season - 1}-${String(season).slice(2)} season to date` : 'Season to date',
     day ? `before ${day}` : '', [
       cell('Bets', String(s.bets), hasF ? 'passing the filter' : 'graded'),
-      cell('Record', s.record, 'vs the pre-game line'),
+      cell('Record', s.record, MARKET === 'total' ? 'vs the pre-game total' : 'vs the pre-game line'),
       winCell(s, s.pm == null ? 'break-even 52.4%' : `± ${pctTxt(s.pm)} · break-even 52.4%`),
     ]);
 
@@ -825,16 +873,16 @@ document.querySelectorAll('#tabs button').forEach((b) => { b.onclick = () => sho
 addEventListener('hashchange', () => showTab(location.hash.slice(1), false));
 
 function onFilter() {
-  for (const [m] of MET) store('cbbsq_f_' + m, $('f_' + m).value === '' ? null : $('f_' + m).value);
+  for (const [m] of MET) store(KP + 'f_' + m, $('f_' + m).value === '' ? null : $('f_' + m).value);
   renderWork(); renderSpots(); renderSummary();
 }
 
 for (const [m, name] of MET) {
   const o = document.createElement('option'); o.value = m; o.textContent = name; $('lmetric').append(o);
-  const saved = load('cbbsq_f_' + m); if (saved != null) $('f_' + m).value = saved;
+  const saved = load(KP + 'f_' + m); if (saved != null) $('f_' + m).value = saved;
   $('f_' + m).addEventListener('input', onFilter);
 }
-for (const id of ['tgt', 'tminb']) { const v = load('cbbsq_' + id); if (v != null) $(id).value = v; $(id).addEventListener('input', () => { store('cbbsq_' + id, $(id).value); renderWork(); }); }
+for (const id of ['tgt', 'tminb']) { const v = load(KP + id); if (v != null) $(id).value = v; $(id).addEventListener('input', () => { store(KP + id, $(id).value); renderWork(); }); }
 $('lmetric').addEventListener('input', renderWork);
 $('fclear').onclick = () => { for (const [m] of MET) $('f_' + m).value = ''; onFilter(); };
 

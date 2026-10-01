@@ -235,7 +235,7 @@ def team_luck(tg: pd.DataFrame, *, recent: int = 5) -> pd.DataFrame:
     Per 100 possessions so fast-paced teams don't look luckier just for playing more possessions.
     """
     if tg.empty:
-        return pd.DataFrame(columns=["G", "shoot_luck", "opp_luck", "luck", "luck_recent"])
+        return pd.DataFrame(columns=["G", "shoot_luck", "opp_luck", "luck", "luck_recent", "shoot_recent", "opp_recent"])
 
     def per100(df: pd.DataFrame, num: str, poss: str) -> pd.Series:
         ok = df[num].notna() & df[poss].notna() & (df[poss] > 0)
@@ -248,7 +248,9 @@ def team_luck(tg: pd.DataFrame, *, recent: int = 5) -> pd.DataFrame:
     out["shoot_luck"] = per100(tg, "shot_making", "poss")
     out["opp_luck"] = per100(tg, "shot_defense", "opp_poss")
     out["luck"] = out["shoot_luck"] + out["opp_luck"]
-    out["luck_recent"] = per100(recent_rows, "shot_making", "poss") + per100(recent_rows, "shot_defense", "opp_poss")
+    out["shoot_recent"] = per100(recent_rows, "shot_making", "poss")
+    out["opp_recent"] = per100(recent_rows, "shot_defense", "opp_poss")
+    out["luck_recent"] = out["shoot_recent"] + out["opp_recent"]
     out.index.name = "team"
     return out
 
@@ -337,10 +339,69 @@ def regression_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 
     return df.sort_values("gap", ascending=False, na_position="last").reset_index(drop=True)
 
 
-def spots_for_date(conn: sqlite3.Connection, on: str, *, min_games: int = 5, recent: int = 5) -> pd.DataFrame:
-    """Regression spots for one date, using only that season's games played before it."""
+def total_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 5, recent: int = 5) -> pd.DataFrame:
+    """Over / under version of the regression spots, one row per game.
+
+    Each team's "scoring luck" is how many more points per 100 possessions its games have produced than
+    their shots were worth, at both ends: its own shot-making (``shoot_luck``) plus its opponents'
+    (``-opp_luck``). ``combined`` averages the two teams. Positive means these games have run hot, so the
+    total may be inflated: bet the Under; negative, the Over. ``gap`` = |combined|. ``opp_gap`` (the
+    opponents'-shooting part), ``l5_gap`` (last ``recent`` games) and ``sq_edge`` (ShotQuality's projected
+    total vs the line, in points) are all signed so that positive agrees with the pick.
+    ``tg`` must hold only games played before the slate's date.
+    """
+    cols = ["game_id", "status", "away_team", "home_team", "total_pre", "proj_total",
+            "away_G", "away_tot_luck", "away_tot_shoot", "away_tot_opp", "away_tot_recent",
+            "home_G", "home_tot_luck", "home_tot_shoot", "home_tot_opp", "home_tot_recent",
+            "combined", "gap", "opp_gap", "l5_gap", "sq_edge", "back", "back_line"]
+    if slate.empty:
+        return pd.DataFrame(columns=cols)
+    luck = team_luck(tg, recent=recent)
+    ratio, _, avg_poss = sq_calibration(tg)
+    team_poss = tg.groupby("team")["poss"].mean() if len(tg) else pd.Series(dtype=float)
+    out = []
+    for g in slate.itertuples(index=False):
+        row = {"game_id": g.game_id, "status": g.status, "away_team": g.away_team, "home_team": g.home_team,
+               "total_pre": g.total_pre if pd.notna(g.total_pre) else None}
+        for side, team in (("away", g.away_team), ("home", g.home_team)):
+            t = luck.loc[team] if team in luck.index else None
+            row[f"{side}_G"] = int(t["G"]) if t is not None else 0
+            row[f"{side}_tot_shoot"] = float(t["shoot_luck"]) if t is not None else np.nan
+            row[f"{side}_tot_opp"] = -float(t["opp_luck"]) if t is not None else np.nan
+            row[f"{side}_tot_luck"] = row[f"{side}_tot_shoot"] + row[f"{side}_tot_opp"]
+            row[f"{side}_tot_recent"] = (float(t["shoot_recent"]) - float(t["opp_recent"])) if t is not None else np.nan
+        a_pre, h_pre = getattr(g, "away_pregame_sq_ppp", None), getattr(g, "home_pregame_sq_ppp", None)
+        row["proj_total"] = np.nan
+        if pd.notna(a_pre) and pd.notna(h_pre):
+            tp = [team_poss.get(t) for t in (g.away_team, g.home_team)]
+            tp = [v for v in tp if v is not None and pd.notna(v)]
+            row["proj_total"] = (a_pre + h_pre) * (float(np.mean(tp)) if tp else avg_poss) * ratio
+        ok = row["away_G"] >= min_games and row["home_G"] >= min_games
+        combined = (row["away_tot_luck"] + row["home_tot_luck"]) / 2
+        if ok and pd.notna(combined) and combined != 0:
+            sign = 1 if combined > 0 else -1  # +1: games running hot, bet the Under
+            row["combined"] = combined
+            row["gap"] = abs(combined)
+            row["opp_gap"] = (row["away_tot_opp"] + row["home_tot_opp"]) / 2 * sign
+            row["l5_gap"] = (row["away_tot_recent"] + row["home_tot_recent"]) / 2 * sign
+            row["back"] = "Under" if sign > 0 else "Over"
+            row["back_line"] = row["total_pre"]
+            row["sq_edge"] = ((row["total_pre"] - row["proj_total"]) * sign
+                              if row["total_pre"] is not None and pd.notna(row["proj_total"]) else np.nan)
+        else:
+            row.update(combined=np.nan, gap=np.nan, opp_gap=np.nan, l5_gap=np.nan, sq_edge=np.nan, back=None, back_line=None)
+        out.append(row)
+    df = pd.DataFrame(out, columns=cols)
+    return df.sort_values("gap", ascending=False, na_position="last").reset_index(drop=True)
+
+
+def spots_for_date(conn: sqlite3.Connection, on: str, *, min_games: int = 5, recent: int = 5,
+                   market: str = "spread") -> pd.DataFrame:
+    """Regression spots for one date (``market`` "spread" or "total"), using only that season's
+    games played before it."""
     from .parse import season_for
 
     d = date.fromisoformat(on)
     tg = load_team_games(conn, season=season_for(d), end=(d - timedelta(days=1)).isoformat())
-    return regression_spots(tg, load_slate(conn, on), min_games=min_games, recent=recent)
+    fn = total_spots if market == "total" else regression_spots
+    return fn(tg, load_slate(conn, on), min_games=min_games, recent=recent)
