@@ -349,8 +349,14 @@ def total_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 5, re
     opponents'-shooting part), ``l5_gap`` (last ``recent`` games) and ``sq_edge`` (ShotQuality's projected
     total vs the line, in points) are all signed so that positive agrees with the pick.
     ``tg`` must hold only games played before the slate's date.
+
+    Everything is measured against the league: ``league_luck`` is how many more points per 100 possessions
+    teams have scored than their SQ points across all of ``tg``, and it is subtracted from each team's
+    numbers. Otherwise any constant gap between real and SQ scoring (free throws, say) would make every
+    game look hot or cold and push every pick to the same side. (Spreads don't need this: a team's own
+    shooting and its opponents' cancel the league level out.)
     """
-    cols = ["game_id", "status", "away_team", "home_team", "total_pre", "proj_total",
+    cols = ["game_id", "status", "away_team", "home_team", "total_pre", "proj_total", "league_luck",
             "away_G", "away_tot_luck", "away_tot_shoot", "away_tot_opp", "away_tot_recent",
             "home_G", "home_tot_luck", "home_tot_shoot", "home_tot_opp", "home_tot_recent",
             "combined", "gap", "opp_gap", "l5_gap", "sq_edge", "back", "back_line"]
@@ -359,17 +365,20 @@ def total_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 5, re
     luck = team_luck(tg, recent=recent)
     ratio, _, avg_poss = sq_calibration(tg)
     team_poss = tg.groupby("team")["poss"].mean() if len(tg) else pd.Series(dtype=float)
+    ok_rows = tg[tg["shot_making"].notna() & tg["poss"].notna() & (tg["poss"] > 0)] if len(tg) else tg
+    league = float(100 * ok_rows["shot_making"].sum() / ok_rows["poss"].sum()) if len(ok_rows) else 0.0
     out = []
     for g in slate.itertuples(index=False):
         row = {"game_id": g.game_id, "status": g.status, "away_team": g.away_team, "home_team": g.home_team,
-               "total_pre": g.total_pre if pd.notna(g.total_pre) else None}
+               "total_pre": g.total_pre if pd.notna(g.total_pre) else None, "league_luck": league}
         for side, team in (("away", g.away_team), ("home", g.home_team)):
             t = luck.loc[team] if team in luck.index else None
             row[f"{side}_G"] = int(t["G"]) if t is not None else 0
-            row[f"{side}_tot_shoot"] = float(t["shoot_luck"]) if t is not None else np.nan
-            row[f"{side}_tot_opp"] = -float(t["opp_luck"]) if t is not None else np.nan
+            row[f"{side}_tot_shoot"] = float(t["shoot_luck"]) - league if t is not None else np.nan
+            row[f"{side}_tot_opp"] = -float(t["opp_luck"]) - league if t is not None else np.nan
             row[f"{side}_tot_luck"] = row[f"{side}_tot_shoot"] + row[f"{side}_tot_opp"]
-            row[f"{side}_tot_recent"] = (float(t["shoot_recent"]) - float(t["opp_recent"])) if t is not None else np.nan
+            row[f"{side}_tot_recent"] = (float(t["shoot_recent"]) - float(t["opp_recent"]) - 2 * league
+                                         if t is not None else np.nan)
         a_pre, h_pre = getattr(g, "away_pregame_sq_ppp", None), getattr(g, "home_pregame_sq_ppp", None)
         row["proj_total"] = np.nan
         if pd.notna(a_pre) and pd.notna(h_pre):

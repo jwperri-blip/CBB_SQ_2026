@@ -142,6 +142,7 @@ cbbsq luck                            # results beating their shot quality (--un
 cbbsq spots                           # today's games: which side luck says to bet (--date, --details)
 cbbsq grade                           # which luck edge / last 5 / SQ edge thresholds have won (--target 55)
 cbbsq spots --totals                  # the same for over / under: which side of the total to bet
+cbbsq audit                           # data checks: misread cards, spreads on the wrong team, name variants...
 cbbsq grade --totals                  # thresholds for the over / under picks
 cbbsq report                          # reports/dashboard.html, an interactive dashboard
 cbbsq export                          # CSVs for Excel / Google Sheets in data/exports/
@@ -180,7 +181,7 @@ The dashboard's **Find your threshold** card does the same interactively: set a 
 
 ### Totals (over / under)
 
-The same system runs separately for totals. Each team's games are compared with what their shots were worth at both ends (its own shot-making plus its opponents'); when the two teams' games have been scoring more than their shots deserved, the total may be inflated, so the pick is the **Under**, and the **Over** when less. The four numbers are measured in the pick's direction (positive agrees with the bet): **Luck edge** (how far the games have run above or below their shots, per 100 possessions), **From opp. shooting**, **Last 5**, and **SQ edge** (ShotQuality's pregame projection turned into a total, minus the line, on the pick's side). Picks are saved to their own `total_picks` table, graded on total points against the pre-game total, and `cbbsq grade --totals` / `cbbsq spots --totals` work exactly like the spreads versions.
+The same system runs separately for totals. Each team's games are compared with what their shots were worth at both ends (its own shot-making plus its opponents'); when the two teams' games have been scoring more than their shots deserved, the total may be inflated, so the pick is the **Under**, and the **Over** when less. The four numbers are measured in the pick's direction (positive agrees with the bet): **Luck edge** (how far the games have run above or below their shots, per 100 possessions), **From opp. shooting**, **Last 5**, and **SQ edge** (ShotQuality's pregame projection turned into a total, minus the line, on the pick's side). Scoring luck is measured against the league: the season-to-date gap between real and SQ points across all teams is taken out first, so a constant difference (for example if SQ points don't fully count free throws) doesn't push every pick to the Under or the Over. Picks are saved to their own `total_picks` table, graded on total points against the pre-game total, and `cbbsq grade --totals` / `cbbsq spots --totals` work exactly like the spreads versions.
 
 `cbbsq report` writes two pages side by side: `reports/dashboard.html` (spreads) and `reports/dashboard-totals.html` (totals), with a Spreads / Totals switch in the header. Each page keeps its own threshold filter.
 

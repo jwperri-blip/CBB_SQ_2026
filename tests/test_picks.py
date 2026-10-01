@@ -169,8 +169,11 @@ def test_dashboard_threshold_card_matches_python(conn, tmp_path, chromium_ok):
 
 def test_total_pick_direction_numbers_and_grading(conn):
     slate, today = seed(conn)
-    # Hot Owls' games: they score 10 over their shots, opponents 2 under: +8 at the 'hot' end.
-    # Cold Hawks' games: they score 10 under, opponents 2 over: -8. Make Hot's games run hotter.
+    # A league of games that score exactly what their shots were worth...
+    db.upsert_games(conn, [game(date(2026, 1, 1) + timedelta(days=i % 9), f"Neutral A{i}", f"Neutral B{i}",
+                                a=(68, 68.0, 1.0, 1.0), h=(70, 70.0, 1.03, 1.03)) for i in range(60)])
+    # ...while Hot Owls' games run 16 over at their end (2 under at the other) and Cold Hawks' games run
+    # 10 under (2 over): together these two teams' games have scored more than their shots deserved.
     conn.execute("UPDATE games SET home_score = home_score + 6 WHERE home_team = 'Hot Owls' AND status = 'Final'")
     conn.commit()
     spot = analysis.spots_for_date(conn, slate.isoformat(), market="total").iloc[0]

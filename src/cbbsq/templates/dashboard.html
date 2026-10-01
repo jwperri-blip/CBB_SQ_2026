@@ -509,6 +509,9 @@ function selectTeam(team, quiet) {
   if (!quiet) renderBoard();
 }
 
+// A pick that can actually be bet (and graded): a side and a posted line.
+const bettable = (r) => r.back != null && r.back_line != null;
+
 // A number with an in-cell bar: one hue for size, or blue / red either side of a zero line.
 function barCell(v, max, signed, txt) {
   const wrap = document.createElement('span'); wrap.className = 'bar';
@@ -545,8 +548,9 @@ function renderSpots() {
   // v: sort value; f: display; text columns sort A-Z first, numbers high-to-low first.
   const SC = [
     {k: 'game', t: 'Game', v: (r) => `${r.away_team} @ ${r.home_team}`, cls: 'l', text: true},
-    TOT ? {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => r.back ? `${r.back} ${r.back_line}` : 'No pick (under 5 games)', cls: 'l', text: true, bold: true}
-        : {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => r.back ? r.back + line(r.back_line) : 'No pick (under 5 games)', cls: 'l', text: true, bold: true},
+    // A side with no posted line yet can't be bet or graded: shown, but not counted as a bet.
+    TOT ? {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => !r.back ? 'No pick (under 5 games)' : r.back_line == null ? `${r.back} (no total yet)` : `${r.back} ${r.back_line}`, cls: 'l', text: true, bold: true}
+        : {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => !r.back ? 'No pick (under 5 games)' : r.back_line == null ? `${r.back} (no line yet)` : r.back + line(r.back_line), cls: 'l', text: true, bold: true},
     TOT ? {k: 'proj_total', t: 'SQ proj.', v: (r) => r.proj_total, f: (r) => r.proj_total == null ? '–' : f1(r.proj_total)}
         : {k: 'fade', t: 'Against', v: fade, f: (r) => fade(r) || '–', cls: 'l', text: true},
     {k: 'gap', t: 'Luck edge', v: (r) => r.gap, f: (r) => r.gap == null ? '–' : f1(r.gap), bar: 'size'},
@@ -556,7 +560,7 @@ function renderSpots() {
   ];
   const flt = activeFilter();
   if (Object.keys(flt).length) {
-    SC.push({k: 'meets', t: 'Your filter', v: (r) => r.back ? (meets(r, flt) ? 1 : 0) : null, f: (r) => !r.back ? '–' : meets(r, flt) ? '✓' : '', tick: true});
+    SC.push({k: 'meets', t: 'Your filter', v: (r) => bettable(r) ? (meets(r, flt) ? 1 : 0) : null, f: (r) => !bettable(r) ? '–' : meets(r, flt) ? '✓' : '', tick: true});
   }
   if (spots.some((r) => r.result != null)) {
     SC.push({k: 'cover', t: 'Result', v: (r) => r.cover, chip: true,
@@ -613,8 +617,8 @@ function renderSpots() {
       } else if (c.tick && txt === '✓') {
         const tk = document.createElement('span'); tk.className = 'tick'; tk.textContent = '✓'; tk.title = 'Passes your filter'; td.append(tk);
       } else td.textContent = txt;
-      if (c.bold && r.back) td.style.fontWeight = '600';
-      if (c.k === 'back' && !r.back) td.classList.add('dim');
+      if (c.bold && bettable(r)) td.style.fontWeight = '600';
+      if (c.k === 'back' && !bettable(r)) td.classList.add('dim');
     }
     if (!open) continue;
     const d = body.insertRow(); d.className = 'detail';
@@ -841,7 +845,7 @@ function renderSummary() {
     ]);
 
   // The slate's day
-  const spots = DATA.spots || [], picks = spots.filter((r) => r.back), pass = picks.filter((r) => meets(r, f));
+  const spots = DATA.spots || [], picks = spots.filter(bettable), pass = picks.filter((r) => meets(r, f));
   const done = pass.filter((r) => ['W', 'L', 'P'].includes(r.result));
   const t = tstats(done.map((r) => ({result: r.result, units: unitsOf(r.result)})));
   const pending = pass.length - done.length - pass.filter((r) => r.result === 'V').length;

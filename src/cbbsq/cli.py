@@ -268,7 +268,8 @@ def _result_text(result, cover) -> str:
 def _print_total_spots(spots: pd.DataFrame, results: pd.DataFrame, on: str, args) -> None:
     view = pd.DataFrame({
         "game": spots["away_team"] + " @ " + spots["home_team"],
-        "bet": [f"{b} {v:g}" if isinstance(b, str) and pd.notna(v) else f"no pick (under {args.min_games} games)"
+        "bet": [f"no pick (under {args.min_games} games)" if not isinstance(b, str) else
+                f"{b} (no total yet)" if pd.isna(v) else f"{b} {v:g}"
                 for b, v in zip(spots["back"], spots["back_line"])],
         "sq_proj": spots["proj_total"].map(lambda v: "-" if pd.isna(v) else f"{v:.1f}"),
         "luck_edge": spots["gap"], "from_opp_shooting": spots["opp_gap"], f"last_{args.recent}": spots["l5_gap"],
@@ -318,7 +319,7 @@ def cmd_spots(settings: Settings, args) -> None:
         _print_total_spots(spots, results, on, args)
         return
     fade = spots["away_team"].where(spots["back"] == spots["home_team"], spots["home_team"]).where(spots["back"].notna())
-    bet = spots["back"] + spots["back_line"].map(lambda v: "" if pd.isna(v) else (" PK" if v == 0 else f" {v:+g}"))
+    bet = spots["back"] + spots["back_line"].map(lambda v: " (no line yet)" if pd.isna(v) else (" PK" if v == 0 else f" {v:+g}"))
     view = pd.DataFrame({
         "game": spots["away_team"] + " @ " + spots["home_team"],
         "bet": bet.fillna("no pick (under %d games)" % args.min_games),
@@ -458,6 +459,20 @@ def cmd_serve(settings: Settings, args) -> None:
         return
     print(f"Password: {password}  (any username; stored in {args.env} as CBBSQ_SERVE_PASSWORD)")
     serve(Path(args.dir), password, host=args.host, port=port)
+
+
+def cmd_audit(settings: Settings, args) -> None:
+    from .audit import run
+
+    conn = db.connect(settings.db_path)
+    findings = run(conn)
+    conn.close()
+    for f in findings:
+        print(f"[{f.level:4}] {f.title}: {f.detail}")
+        for ex in f.examples:
+            print(f"         - {ex}")
+    warns = sum(f.level == "WARN" for f in findings)
+    print(f"\n{warns} warning(s)." if warns else "\nNo problems found.")
 
 
 def cmd_export(settings: Settings, args) -> None:
@@ -613,6 +628,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--port", type=int, help="port (default 8765, or CBBSQ_SERVE_PORT)")
     sp.add_argument("--info", action="store_true", help="print the addresses and password, then exit")
     sp.set_defaults(func=cmd_serve)
+
+    sp = sub.add_parser("audit", help="check the stored data for anything that would make a number wrong")
+    sp.set_defaults(func=cmd_audit)
 
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")
     sp.add_argument("--out", default="data/exports")
