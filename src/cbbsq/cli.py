@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import analysis, db
+from . import analysis, db, picks
 from .config import Settings
 
 
@@ -249,10 +249,27 @@ def cmd_luck(settings: Settings, args) -> None:
     _print(t, rows=args.top, digits=2)
 
 
+def _update_picks(conn) -> None:
+    """Save today's (and any missing past) picks, and grade everything that has finished."""
+    new, graded = picks.update(conn)
+    if new or graded:
+        print(f"Picks: {new} new saved, {graded} newly graded (`cbbsq grade` shows what's working).\n")
+
+
+def _result_text(result, cover) -> str:
+    if result is None or (isinstance(result, float) and pd.isna(result)):
+        return "-"
+    if result == "V":
+        return "void"
+    return f"{result} {cover:+g}" if cover is not None and pd.notna(cover) else str(result)
+
+
 def cmd_spots(settings: Settings, args) -> None:
     on = (args.date or date.today()).isoformat()
     conn = db.connect(settings.db_path)
+    _update_picks(conn)
     spots = analysis.spots_for_date(conn, on, min_games=args.min_games, recent=args.recent)
+    results = picks.luck_results(conn, on).set_index("game_id")
     conn.close()
     if spots.empty:
         print(f"No games stored for {on}. Run `cbbsq collect --date {on}` first.")
@@ -269,10 +286,15 @@ def cmd_spots(settings: Settings, args) -> None:
         "from_opp_misses": spots["opp_gap"],
         f"last_{args.recent}": spots["l5_gap"],
     })
+    if len(results):
+        view["result"] = [_result_text(*results.loc[g][["result", "cover"]]) if g in results.index else "-"
+                          for g in spots["game_id"]]
     print(f"Regression spots for {on}. Bet = the less lucky team.\n"
           f"  luck_edge        extra points per 100 possessions the team you bet against has gained from luck\n"
           f"  from_opp_misses  the part of that edge from opponents missing good shots (mostly chance; positive is better)\n"
-          f"  last_{args.recent}           the same edge over the last {args.recent} games (positive = recent games agree)\n")
+          f"  last_{args.recent}           the same edge over the last {args.recent} games (positive = recent games agree)"
+          + ("\n  result           how the bet did against the pre-game line (W/L/P and points beat it by)" if len(results) else "")
+          + "\n")
     for c in ("luck_edge", "from_opp_misses", f"last_{args.recent}"):
         signed = c != "luck_edge"
         view[c] = view[c].map(lambda v: "-" if pd.isna(v) else (f"{v:+.1f}" if signed else f"{v:.1f}"))
@@ -289,6 +311,57 @@ def cmd_spots(settings: Settings, args) -> None:
                 print(f"  {name} ({getattr(r, f'{side}_G')} games): {luck:+.1f} = "
                       f"{getattr(r, f'{side}_shoot_luck'):+.1f} own shooting, {getattr(r, f'{side}_opp_luck'):+.1f} "
                       f"opponents missing; last {args.recent}: {getattr(r, f'{side}_luck_recent'):+.1f}")
+
+
+def cmd_grade(settings: Settings, args) -> None:
+    conn = db.connect(settings.db_path)
+    _update_picks(conn)
+    allp = picks.load_picks(conn, season=args.season, saved_only=args.saved_only)
+    conn.close()
+    card = picks.scorecard(allp)
+    if card.empty:
+        print("No graded picks yet. Picks are saved when you run `cbbsq spots` or `cbbsq report`, "
+              "and graded once the games are final.")
+        return
+    pending = int(allp["result"].isna().sum())
+    saved = int((allp["source"] == "saved").sum())
+    print(f"What's working: every signal's picks graded against the pre-game line at -110 "
+          f"(break-even {picks.BREAKEVEN:.1%}).")
+    print(f"{len(allp)} picks ({saved} saved on game day, {len(allp) - saved} filled in afterwards), "
+          f"{pending} waiting on results.")
+    print("+/- is the 95% range around the win %: a record is only convincing once that range clears 52.4%.\n")
+    view = card.copy()
+    view["win_pct"] = view["win_pct"].map(lambda v: "-" if pd.isna(v) else f"{v:.1%}")
+    view["plus_minus"] = view["plus_minus"].map(lambda v: "-" if pd.isna(v) else f"+/-{v:.1%}")
+    view["units"] = view["units"].map(lambda v: f"{v:+.1f}")
+    view["roi"] = view["roi"].map(lambda v: "-" if pd.isna(v) else f"{v:+.1%}")
+    view["signal"] = view["signal"].where(view["edge_size"] == "All", "")
+    _print(view.drop(columns="strategy").set_index("signal"))
+
+
+def cmd_picks(settings: Settings, args) -> None:
+    on = (args.date or date.today()).isoformat()
+    conn = db.connect(settings.db_path)
+    _update_picks(conn)
+    df = pd.read_sql_query(
+        "SELECT p.*, g.away_team, g.home_team FROM picks p JOIN games g ON g.game_id = p.game_id "
+        "WHERE p.pick_date = ? ORDER BY p.strategy, p.edge DESC", conn, params=[on])
+    conn.close()
+    if df.empty:
+        print(f"No picks for {on}. Collect that date first (`cbbsq collect --date {on}`).")
+        return
+    if args.signal:
+        df = df[df["strategy"] == args.signal]
+    print(f"Picks for {on} (edge: luck per 100 possessions for the luck signals, points vs the line for SQ):\n")
+    view = pd.DataFrame({
+        "signal": df["strategy"].map(picks.STRATEGIES),
+        "game": df["away_team"] + " @ " + df["home_team"],
+        "bet": [f"{p} {v:g}" if p in ("Over", "Under") else f"{p} {v:+g}" if v else f"{p} PK"
+                for p, v in zip(df["pick"], df["line"])],
+        "edge": df["edge"].map(lambda v: f"{v:.1f}"),
+        "result": [_result_text(r, c) for r, c in zip(df["result"], df["cover"])],
+    })
+    _print(view.set_index("signal"))
 
 
 def cmd_export(settings: Settings, args) -> None:
@@ -312,9 +385,14 @@ def cmd_report(settings: Settings, args) -> None:
     tg = _team_games(settings, args)
     on = (args.spots_date or date.today()).isoformat()
     conn = db.connect(settings.db_path)
+    _update_picks(conn)
     spots = analysis.spots_for_date(conn, on)
+    results = picks.luck_results(conn, on)
+    if len(spots) and len(results):
+        spots = spots.merge(results, on="game_id", how="left")
+    card = picks.scorecard(picks.load_picks(conn, season=args.season))
     conn.close()
-    path = write_report(tg, Path(args.out), min_games=args.min_games, spots=spots, spots_date=on)
+    path = write_report(tg, Path(args.out), min_games=args.min_games, spots=spots, spots_date=on, scorecard=card)
     print(f"Dashboard written to {path.resolve()} - open it in your browser.")
 
 
@@ -408,6 +486,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--details", action="store_true", help="also print each team's luck breakdown")
     sp.add_argument("--top", type=int, help="show only the first N rows")
     sp.set_defaults(func=cmd_spots)
+
+    sp = sub.add_parser("grade", help="grade saved picks and show what's working")
+    sp.add_argument("--season", type=int, help="season by end year, e.g. 2026 for 2025-26")
+    sp.add_argument("--saved-only", action="store_true", help="only picks saved on game day (no filled-in history)")
+    sp.set_defaults(func=cmd_grade)
+
+    sp = sub.add_parser("picks", help="every signal's picks for one date, with results once graded")
+    sp.add_argument("--date", type=_date, help="date (default today)")
+    sp.add_argument("--signal", choices=list(picks.STRATEGIES), help="only this signal")
+    sp.set_defaults(func=cmd_picks)
 
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")
     sp.add_argument("--out", default="data/exports")

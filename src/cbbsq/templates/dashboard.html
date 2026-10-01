@@ -82,7 +82,7 @@
       <li><b>Luck edge:</b> how many more points per 100 possessions the team you're betting against has gained from luck this season (points scored and allowed vs. what the shots were worth). Bigger = stronger spot.</li>
       <li><b>From opp. misses:</b> how much of that edge comes from opponents missing good shots, which is mostly chance. Positive is better.</li>
       <li><b>Last 5:</b> the same edge over the last 5 games. Positive means recent games agree.</li>
-      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. Not yet backtested.</li>
+      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. See <b>What's working</b> below for how this pick has done.</li>
     </ul>
   </div>
 
@@ -97,6 +97,18 @@
     <div class="tablewrap"><table id="board"><thead></thead><tbody></tbody></table></div>
     <p class="note">SQ = ShotQuality's shot-quality points per possession. SQ Net = offense SQ PPP − SQ PPP allowed.
       Adj = opponent-adjusted (full season). Luck/g = actual margin − SQ margin. Δ Net = last 5 games vs. season. Click a team for its trend.</p>
+  </div>
+
+  <div class="card" id="workcard">
+    <h2>What's working</h2>
+    <p class="sub" style="margin:-6px 0 12px">Every signal's picks, graded against the pre-game line at −110. Break-even is 52.4%.</p>
+    <div class="tablewrap" style="max-height:none"><table id="work"><thead></thead><tbody></tbody></table></div>
+    <ul class="how">
+      <li><b>Signals:</b> the three luck signals bet the less lucky team (season, opponents' misses only, last 5 games); "all three agree" is the season pick only when the other two point the same way. The two SQ signals turn ShotQuality's pregame SQ projection into a margin and a total and bet whichever side of the line it favors.</li>
+      <li><b>Edge size:</b> each signal's picks split into thirds, weakest to strongest. A signal that works should win more as the edge grows.</li>
+      <li><b>±:</b> the 95% range around the win %. A record is only convincing once the low end clears 52.4%, which takes a few hundred bets.</li>
+      <li>Picks are saved each time you run <code>cbbsq report</code> or <code>cbbsq spots</code> and graded once games are final. Past dates are filled in using only the games before each date.</li>
+    </ul>
   </div>
 
   <div class="card" id="perfcard">
@@ -396,6 +408,10 @@ function renderSpots() {
     {k: 'opp_gap', t: 'From opp. misses', v: (r) => r.opp_gap, f: (r) => sgn(r.opp_gap, f1), color: true},
     {k: 'l5_gap', t: 'Last 5', v: (r) => r.l5_gap, f: (r) => sgn(r.l5_gap, f1), color: true},
   ];
+  if (spots.some((r) => r.result != null)) {
+    SC.push({k: 'cover', t: 'Result', v: (r) => r.cover, color: true,
+             f: (r) => r.result == null ? '–' : r.result === 'V' ? 'void' : `${r.result} ${sgn(r.cover, (v) => String(+v.toFixed(1)))}`});
+  }
   const hr = head.insertRow();
   for (const c of SC) {
     const th = document.createElement('th');
@@ -451,7 +467,38 @@ function renderSpots() {
   }
 }
 
+function renderWork() {
+  const rows = DATA.scorecard || [];
+  const t = $('work'); t.tHead.innerHTML = ''; t.tBodies[0].innerHTML = '';
+  const H = [['Signal', 'l'], ['Edge size', 'l'], ['Bets'], ['Record'], ['Win %'], ['±'], ['Units'], ['ROI']];
+  const hr = t.tHead.insertRow();
+  for (const [h, cls] of H) { const th = document.createElement('th'); th.textContent = h; th.style.cursor = 'default'; if (cls) th.className = cls; hr.append(th); }
+  if (!rows.length) {
+    const td = t.tBodies[0].insertRow().insertCell(); td.colSpan = H.length; td.className = 'l empty';
+    td.textContent = 'No graded picks yet. Run `cbbsq report` after games finish.';
+    return;
+  }
+  const BE = 110 / 210, pct = (v) => v == null ? '–' : (100 * v).toFixed(1) + '%';
+  for (const r of rows) {
+    const all = r.edge_size === 'All', row = t.tBodies[0].insertRow();
+    row.style.cursor = 'default';
+    if (all) row.style.borderTop = '2px solid var(--border)';
+    const cells = [all ? r.signal : '', all ? 'All picks' : r.edge_size, r.bets, r.record, pct(r.win_pct),
+                   r.plus_minus == null ? '–' : '±' + pct(r.plus_minus), sgn(r.units, f1), r.roi == null ? '–' : sgn(100 * r.roi, f1) + '%'];
+    cells.forEach((v, i) => {
+      const td = row.insertCell(); td.textContent = v;
+      if (i < 2) td.className = 'l';
+      if (all && i < 2) td.style.fontWeight = '600';
+      if (!all && i === 1) td.style.paddingLeft = '20px';
+      if (!all && i > 1) td.style.color = 'var(--text-2)';
+      if (i === 4 && r.win_pct != null) td.classList.add(r.win_pct > BE ? 'pos' : 'negv');
+      if (i === 6 && Math.abs(r.units) >= 0.05) td.classList.add(r.units > 0 ? 'pos' : 'negv');
+    });
+  }
+}
+
 renderSpots();
+renderWork();
 ['win', 'ming', 'q'].forEach((id) => $(id).addEventListener('input', renderBoard));
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (selected) selectTeam(selected, true); renderBoard(); }, 150); });
 $('perfn').addEventListener('input', renderPerf);

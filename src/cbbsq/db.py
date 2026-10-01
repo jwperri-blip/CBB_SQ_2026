@@ -4,6 +4,8 @@
 * ``snapshots``   - append-only log of every scrape of every game (tracks live games too)
 * ``scrape_runs`` - one row per date scraped, for auditing coverage and failures
 * ``team_games``  - view with one row per team per game, from that team's perspective
+* ``picks``       - each signal's pick for each game, saved before tip and graded once the game is final
+* ``pick_runs``   - when picks were last computed for each date
 """
 
 from __future__ import annotations
@@ -64,6 +66,28 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     page_count INTEGER,
     ok INTEGER NOT NULL DEFAULT 0,
     message TEXT
+);
+
+CREATE TABLE IF NOT EXISTS picks (
+    game_id TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    pick_date TEXT NOT NULL,
+    pick TEXT NOT NULL,        -- team name for spread picks, 'Over' / 'Under' for totals
+    line REAL NOT NULL,        -- that team's spread, or the total
+    edge REAL NOT NULL,        -- signal strength (luck per 100 possessions, or points vs the line)
+    source TEXT NOT NULL,      -- 'saved': computed on or before game day; 'backfill': computed later
+    saved_at TEXT NOT NULL,
+    result TEXT,               -- W / L / P, V for postponed or canceled; NULL until graded
+    cover REAL,                -- how many points the pick beat the line by (negative = lost by)
+    units REAL,                -- +0.909 a win at -110, -1 a loss, 0 a push
+    graded_at TEXT,
+    PRIMARY KEY (game_id, strategy)
+);
+CREATE INDEX IF NOT EXISTS idx_picks_date ON picks(pick_date);
+
+CREATE TABLE IF NOT EXISTS pick_runs (
+    pick_date TEXT PRIMARY KEY,
+    computed_at TEXT NOT NULL
 );
 
 DROP VIEW IF EXISTS team_games;

@@ -226,11 +226,6 @@ def luck_table(tg: pd.DataFrame, *, min_games: int = 5, last_n: Optional[int] = 
     return s[cols].sort_values("luck", ascending=False)
 
 
-def _per100(num: pd.Series, poss: pd.Series) -> float:
-    mask = num.notna() & poss.notna() & (poss > 0)
-    return float(100 * num[mask].sum() / poss[mask].sum()) if mask.any() else np.nan
-
-
 def team_luck(tg: pd.DataFrame, *, recent: int = 5) -> pd.DataFrame:
     """Each team's luck per 100 possessions, split into its two parts.
 
@@ -241,19 +236,19 @@ def team_luck(tg: pd.DataFrame, *, recent: int = 5) -> pd.DataFrame:
     """
     if tg.empty:
         return pd.DataFrame(columns=["G", "shoot_luck", "opp_luck", "luck", "luck_recent"])
-    rows = {}
-    for team, g in tg.groupby("team"):
-        shoot = _per100(g["shot_making"], g["poss"])
-        opp = _per100(g["shot_defense"], g["opp_poss"])
-        r = g.tail(recent)
-        rows[team] = {
-            "G": len(g),
-            "shoot_luck": shoot,
-            "opp_luck": opp,
-            "luck": shoot + opp,
-            "luck_recent": _per100(r["shot_making"], r["poss"]) + _per100(r["shot_defense"], r["opp_poss"]),
-        }
-    out = pd.DataFrame.from_dict(rows, orient="index")
+
+    def per100(df: pd.DataFrame, num: str, poss: str) -> pd.Series:
+        ok = df[num].notna() & df[poss].notna() & (df[poss] > 0)
+        parts = pd.DataFrame({"team": df["team"], "n": df[num].where(ok, 0.0), "p": df[poss].where(ok, 0.0)})
+        sums = parts.groupby("team")[["n", "p"]].sum()
+        return 100 * sums["n"] / sums["p"].where(sums["p"] > 0)
+
+    recent_rows = tg.groupby("team", group_keys=False).tail(recent)
+    out = pd.DataFrame({"G": tg.groupby("team").size()})
+    out["shoot_luck"] = per100(tg, "shot_making", "poss")
+    out["opp_luck"] = per100(tg, "shot_defense", "opp_poss")
+    out["luck"] = out["shoot_luck"] + out["opp_luck"]
+    out["luck_recent"] = per100(recent_rows, "shot_making", "poss") + per100(recent_rows, "shot_defense", "opp_poss")
     out.index.name = "team"
     return out
 
@@ -262,7 +257,8 @@ def load_slate(conn: sqlite3.Connection, on: str) -> pd.DataFrame:
     """Every game stored for one date (any status), with the pre-game line."""
     return pd.read_sql_query(
         "SELECT game_id, game_date, status, status_detail, away_team, home_team, home_spread_pre, "
-        "spread_pre_team, spread_pre, total_pre FROM games WHERE game_date = ? ORDER BY game_id",
+        "spread_pre_team, spread_pre, total_pre, away_pregame_sq_ppp, home_pregame_sq_ppp "
+        "FROM games WHERE game_date = ? ORDER BY game_id",
         conn, params=[on])
 
 
