@@ -73,7 +73,8 @@
     <div class="tablewrap" style="max-height:420px"><table id="spots"><thead></thead><tbody></tbody></table></div>
     <p class="note">Luck per 100 possessions, from each team's games this season before this date: own shot-making
       (points − SQ points) plus opponents' shooting against it (opp. SQ points − opp. points). Gap = luckier team minus the other.
-      Opp gap = the opponents'-shooting part of the gap, the part most likely to be noise. Back = the less lucky team, with its pre-game line. Click any column header to sort; click again to reverse.
+      Opp gap = the opponents'-shooting part of the gap, the part most likely to be noise. L5 gap = the same gap over each team's last 5 games, from the same side: positive when recent luck agrees with the season pick, negative when it points the other way.
+      Back = the less lucky team, with its pre-game line. Click any column header to sort; click again to reverse.
       Teams with fewer than 5 prior games get no pick. A screen, not a backtested model. Click a row to open the team to back.</p>
   </div>
 
@@ -392,6 +393,7 @@ function renderSpots() {
     {k: 'home_luck_recent', t: 'Home L5', v: num('home_luck_recent'), f: (r) => sgn(r.home_luck_recent, f1), color: true},
     {k: 'gap', t: 'Gap', v: num('gap'), f: (r) => r.gap == null ? '–' : f1(r.gap)},
     {k: 'opp_gap', t: 'Opp gap', v: num('opp_gap'), f: (r) => sgn(r.opp_gap, f1), color: true},
+    {k: 'l5_gap', t: 'L5 gap', v: num('l5_gap'), f: (r) => sgn(r.l5_gap, f1), color: true},
     {k: 'back', t: 'Back', v: (r) => r.back, cls: 'l', text: true},
     {k: 'back_line', t: 'Back line', v: num('back_line'), f: (r) => r.back_line == null ? '–' : (r.back_line > 0 ? '+' : '') + r.back_line},
   ];

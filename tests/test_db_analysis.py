@@ -175,6 +175,7 @@ def test_regression_spots_pick_the_less_lucky_side_and_ignore_the_future(conn, t
     assert row.away_luck == pytest.approx(-100 * 60 / (6 * 60 / 0.86))
     assert row.gap == pytest.approx(row.home_luck - row.away_luck)
     assert row.opp_gap == pytest.approx(0.0)
+    assert row.l5_gap == pytest.approx(row.home_luck_recent - row.away_luck_recent) and row.l5_gap > 0
     # The other slate game has a team with no history: listed, but no pick, and sorted last.
     assert pd.isna(spots.iloc[-1].back)
 
@@ -245,6 +246,8 @@ def test_dashboard_spots_table_sorts_by_any_column(conn, tmp_path, chromium_ok):
         assert values("Gap") == sorted(gap) and column("Gap")[-1] == "–"  # no-pick game stays last
         page.locator("#spots thead th", has_text="Home opp").click()
         assert values("Home opp") == sorted(values("Home opp"), reverse=True)
+        page.locator("#spots thead th", has_text="L5 gap").click()
+        assert values("L5 gap") == sorted(values("L5 gap"), reverse=True) and column("L5 gap")[-1] == "–"
         page.locator("#spots thead th", has_text="Matchup").click()
         assert column("Matchup") == sorted(column("Matchup"))
         assert not errors

@@ -272,14 +272,15 @@ def regression_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 
 
     ``tg`` must hold only games played before the slate's date, so nothing from the future leaks in.
     ``gap`` = luckier team's luck minus the other's (per 100 possessions); ``opp_gap`` is the same for
-    opponents' shooting alone. ``back`` is the less lucky team, with its pre-game line in ``back_line``.
+    opponents' shooting alone, and ``l5_gap`` the same over each team's last ``recent`` games (positive when
+    recent luck points the same way as the season). ``back`` is the less lucky team, with its pre-game line in ``back_line``.
     Teams with fewer than ``min_games`` prior games get no pick. This is a screen, not a validated
     model: no threshold has been backtested yet.
     """
     cols = ["game_id", "status", "away_team", "home_team", "line", "total_pre",
             "away_G", "away_shoot_luck", "away_opp_luck", "away_luck", "away_luck_recent",
             "home_G", "home_shoot_luck", "home_opp_luck", "home_luck", "home_luck_recent",
-            "gap", "opp_gap", "back", "back_line"]
+            "gap", "opp_gap", "l5_gap", "back", "back_line"]
     if slate.empty:
         return pd.DataFrame(columns=cols)
     luck = team_luck(tg, recent=recent)
@@ -304,11 +305,13 @@ def regression_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 
             diff = row["away_luck"] - row["home_luck"]
             back_home = diff > 0
             row["gap"] = abs(diff)
-            row["opp_gap"] = (row["away_opp_luck"] - row["home_opp_luck"]) * (1 if back_home else -1)
+            sign = 1 if back_home else -1
+            row["opp_gap"] = (row["away_opp_luck"] - row["home_opp_luck"]) * sign
+            row["l5_gap"] = (row["away_luck_recent"] - row["home_luck_recent"]) * sign
             row["back"] = g.home_team if back_home else g.away_team
             row["back_line"] = (hs if back_home else -hs) if hs is not None else None
         else:
-            row.update(gap=np.nan, opp_gap=np.nan, back=None, back_line=None)
+            row.update(gap=np.nan, opp_gap=np.nan, l5_gap=np.nan, back=None, back_line=None)
         out.append(row)
     df = pd.DataFrame(out, columns=cols)
     return df.sort_values("gap", ascending=False, na_position="last").reset_index(drop=True)

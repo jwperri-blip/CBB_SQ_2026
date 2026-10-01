@@ -267,7 +267,7 @@ def cmd_spots(settings: Settings, args) -> None:
         "away_luck": spots["away_luck"], "away_shoot": spots["away_shoot_luck"], "away_opp": spots["away_opp_luck"],
         "home_luck": spots["home_luck"], "home_shoot": spots["home_shoot_luck"], "home_opp": spots["home_opp_luck"],
         f"away_L{args.recent}": spots["away_luck_recent"], f"home_L{args.recent}": spots["home_luck_recent"],
-        "gap": spots["gap"], "opp_gap": spots["opp_gap"], "back": spots["back"], "back_line": spots["back_line"],
+        "gap": spots["gap"], "opp_gap": spots["opp_gap"], f"L{args.recent}_gap": spots["l5_gap"], "back": spots["back"], "back_line": spots["back_line"],
     })
     _print(view.set_index("matchup"), digits=1, rows=args.top)
 
