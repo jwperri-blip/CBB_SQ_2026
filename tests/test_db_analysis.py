@@ -213,3 +213,38 @@ def test_dashboard_over_under_performer_tables(conn, tmp_path, chromium_ok):
         page.locator("#p10u tbody tr").first.click()
         assert page.locator("#tname").inner_text() == lk10.index[-1]
         assert not errors
+
+
+def test_dashboard_spots_table_sorts_by_any_column(conn, tmp_path, chromium_ok):
+    from playwright.sync_api import sync_playwright
+
+    simulate_season(conn)
+    slate = date(2026, 3, 1)
+    recs = [game(slate, f"Team {i:02d}", f"Team {i + 1:02d}", status="Scheduled", a=(None,) * 4, h=(None,) * 4)
+            for i in range(0, 12, 2)]
+    recs.append(game(slate, "Newcomer U", "Team 20", status="Scheduled", a=(None,) * 4, h=(None,) * 4))
+    db.upsert_games(conn, recs)
+    out = write_report(analysis.load_team_games(conn), tmp_path / "dash.html",
+                       spots=analysis.spots_for_date(conn, slate.isoformat()), spots_date=slate.isoformat())
+    with sync_playwright() as p:
+        page = p.chromium.launch().new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(out.resolve().as_uri())
+
+        def column(name):
+            heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_inner_texts()]
+            return page.locator(f"#spots tbody tr td:nth-child({heads.index(name) + 1})").all_inner_texts()
+
+        def values(name):
+            return [float(v) for v in column(name) if v != "–"]
+
+        gap = values("Gap")
+        assert gap == sorted(gap, reverse=True) and column("Gap")[-1] == "–"  # default: biggest gap first
+        page.locator("#spots thead th", has_text="Gap").first.click()
+        assert values("Gap") == sorted(gap) and column("Gap")[-1] == "–"  # no-pick game stays last
+        page.locator("#spots thead th", has_text="Home opp").click()
+        assert values("Home opp") == sorted(values("Home opp"), reverse=True)
+        page.locator("#spots thead th", has_text="Matchup").click()
+        assert column("Matchup") == sorted(column("Matchup"))
+        assert not errors

@@ -73,7 +73,7 @@
     <div class="tablewrap" style="max-height:420px"><table id="spots"><thead></thead><tbody></tbody></table></div>
     <p class="note">Luck per 100 possessions, from each team's games this season before this date: own shot-making
       (points − SQ points) plus opponents' shooting against it (opp. SQ points − opp. points). Gap = luckier team minus the other.
-      Opp gap = the opponents'-shooting part of the gap, the part most likely to be noise. Back = the less lucky team, with its pre-game line.
+      Opp gap = the opponents'-shooting part of the gap, the part most likely to be noise. Back = the less lucky team, with its pre-game line. Click any column header to sort; click again to reverse.
       Teams with fewer than 5 prior games get no pick. A screen, not a backtested model. Click a row to open the team to back.</p>
   </div>
 
@@ -368,37 +368,64 @@ function selectTeam(team, quiet) {
   if (!quiet) renderBoard();
 }
 
+let spotsKey = 'gap', spotsDir = -1;
+
 function renderSpots() {
   const spots = DATA.spots || [];
   $('spotstitle').textContent = `Regression spots · ${DATA.spots_date || ''}`;
   const t = $('spots'), head = t.tHead, body = t.tBodies[0];
   head.innerHTML = ''; body.innerHTML = '';
-  const parts = (side) => (r) => r[`${side}_luck`] == null ? '–'
-    : `${sgn(r[`${side}_luck`], f1)} (${sgn(r[`${side}_shoot_luck`], f1)} / ${sgn(r[`${side}_opp_luck`], f1)})`;
+  const num = (k) => (r) => r[k];
+  const lineNum = (r) => { const m = /([-+]?\d+(?:\.\d+)?)\s*$/.exec(r.line || ''); return m ? +m[1] : (/PK$/.test(r.line || '') ? 0 : null); };
+  // k: sort key; v: sort value; f: display; text columns sort A-Z first, numbers high-to-low first.
   const SC = [
-    ['Matchup', (r) => `${r.away_team} @ ${r.home_team}`, 'l'],
-    ['Status', (r) => r.status || '–', 'l'],
-    ['Line', (r) => r.line || '–', 'l'],
-    ['Away luck (shoot / opp)', parts('away')],
-    ['Home luck (shoot / opp)', parts('home')],
-    ['Away L5', (r) => sgn(r.away_luck_recent, f1)],
-    ['Home L5', (r) => sgn(r.home_luck_recent, f1)],
-    ['Gap', (r) => r.gap == null ? '–' : f1(r.gap)],
-    ['Opp gap', (r) => sgn(r.opp_gap, f1)],
-    ['Back', (r) => r.back ? `${r.back}${r.back_line == null ? '' : ' ' + (r.back_line > 0 ? '+' : '') + r.back_line}` : '–', 'l'],
+    {k: 'matchup', t: 'Matchup', v: (r) => `${r.away_team} @ ${r.home_team}`, cls: 'l', text: true},
+    {k: 'status', t: 'Status', v: (r) => r.status, cls: 'l', text: true},
+    {k: 'line', t: 'Line', v: lineNum, f: (r) => r.line || '–', cls: 'l'},
+    {k: 'away_luck', t: 'Away luck', v: num('away_luck'), f: (r) => sgn(r.away_luck, f1), color: true},
+    {k: 'away_shoot_luck', t: 'Away shoot', v: num('away_shoot_luck'), f: (r) => sgn(r.away_shoot_luck, f1), color: true},
+    {k: 'away_opp_luck', t: 'Away opp', v: num('away_opp_luck'), f: (r) => sgn(r.away_opp_luck, f1), color: true},
+    {k: 'home_luck', t: 'Home luck', v: num('home_luck'), f: (r) => sgn(r.home_luck, f1), color: true},
+    {k: 'home_shoot_luck', t: 'Home shoot', v: num('home_shoot_luck'), f: (r) => sgn(r.home_shoot_luck, f1), color: true},
+    {k: 'home_opp_luck', t: 'Home opp', v: num('home_opp_luck'), f: (r) => sgn(r.home_opp_luck, f1), color: true},
+    {k: 'away_luck_recent', t: 'Away L5', v: num('away_luck_recent'), f: (r) => sgn(r.away_luck_recent, f1), color: true},
+    {k: 'home_luck_recent', t: 'Home L5', v: num('home_luck_recent'), f: (r) => sgn(r.home_luck_recent, f1), color: true},
+    {k: 'gap', t: 'Gap', v: num('gap'), f: (r) => r.gap == null ? '–' : f1(r.gap)},
+    {k: 'opp_gap', t: 'Opp gap', v: num('opp_gap'), f: (r) => sgn(r.opp_gap, f1), color: true},
+    {k: 'back', t: 'Back', v: (r) => r.back, cls: 'l', text: true},
+    {k: 'back_line', t: 'Back line', v: num('back_line'), f: (r) => r.back_line == null ? '–' : (r.back_line > 0 ? '+' : '') + r.back_line},
   ];
   const hr = head.insertRow();
-  for (const [h, , cls] of SC) { const th = document.createElement('th'); th.textContent = h; th.style.cursor = 'default'; if (cls) th.className = cls; hr.append(th); }
+  for (const c of SC) {
+    const th = document.createElement('th');
+    th.textContent = c.t + (spotsKey === c.k ? (spotsDir < 0 ? ' ↓' : ' ↑') : '');
+    if (c.cls) th.className = c.cls;
+    th.onclick = () => { spotsDir = spotsKey === c.k ? -spotsDir : (c.text ? 1 : -1); spotsKey = c.k; renderSpots(); };
+    hr.append(th);
+  }
   if (!spots.length) {
     const td = body.insertRow().insertCell(); td.colSpan = SC.length; td.className = 'l empty';
     td.textContent = `No games stored for ${DATA.spots_date || 'this date'}. Run \`cbbsq collect --date today\` and rebuild the report.`;
     return;
   }
-  for (const r of spots) {
+  const col = SC.find((c) => c.k === spotsKey);
+  const rs = [...spots].sort((a, b) => {
+    const x = col.v(a), y = col.v(b);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1; if (y == null) return -1;  // games without a value always last
+    return (col.text ? String(x).localeCompare(String(y)) : x - y) * spotsDir;
+  });
+  for (const r of rs) {
     const row = body.insertRow();
     if (r.back && DATA.logs[r.back]) row.onclick = () => { selectTeam(r.back); $('teamcard').scrollIntoView({behavior: 'smooth'}); };
     else row.style.cursor = 'default';
-    for (const [, f, cls] of SC) { const td = row.insertCell(); td.textContent = f(r); if (cls) td.className = cls; }
+    for (const c of SC) {
+      const td = row.insertCell();
+      td.textContent = c.f ? c.f(r) : (c.v(r) ?? '–');
+      if (c.cls) td.className = c.cls;
+      const v = c.v(r);
+      if (c.color && v != null && Math.abs(v) >= 0.05) td.classList.add(v > 0 ? 'pos' : 'negv');
+    }
   }
 }
 
