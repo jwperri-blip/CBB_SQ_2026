@@ -416,6 +416,49 @@ def cmd_grade(settings: Settings, args) -> None:
           "\ntrust it once the low end of the range clears 52.4%, and check it holds on the next season (--season).")
 
 
+def cmd_daily(settings: Settings, args) -> None:
+    from .automate import run_daily
+
+    print(f"--- cbbsq daily {datetime.now():%Y-%m-%d %H:%M} ---")
+    code = run_daily(settings, today=args.date, out=Path(args.out), headless=not args.headed, force=args.force)
+    if code:
+        sys.exit(code)
+
+
+def cmd_schedule(settings: Settings, args) -> None:
+    from .automate import DEFAULT_TIMES, ensure_password, install_schedule, remove_schedule
+
+    if args.remove:
+        remove_schedule()
+        print("Background jobs removed.")
+        return
+    times = args.at or list(DEFAULT_TIMES)
+    if args.serve:
+        ensure_password(settings, Path(args.env))
+    try:
+        install_schedule(Path(args.env), times=times, serve=args.serve)
+    except (RuntimeError, ValueError) as exc:
+        sys.exit(f"error: {exc}")
+    print(f"`cbbsq daily` will run every day at {', '.join(times)} (a run missed while the Mac slept happens "
+          f"when it wakes). It does nothing May-October. Log: data/daily.log")
+    if args.serve:
+        print("The web server now runs in the background; `cbbsq serve --info` shows its addresses and password.")
+
+
+def cmd_serve(settings: Settings, args) -> None:
+    from .automate import _addresses, ensure_password, serve
+
+    password = ensure_password(settings, Path(args.env))
+    port = args.port or settings.serve_port
+    if args.info:
+        print(f"Password: {password}  (any username)")
+        for addr in _addresses():
+            print(f"  http://{addr}:{port}/")
+        return
+    print(f"Password: {password}  (any username; stored in {args.env} as CBBSQ_SERVE_PASSWORD)")
+    serve(Path(args.dir), password, host=args.host, port=port)
+
+
 def cmd_export(settings: Settings, args) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -432,23 +475,13 @@ def cmd_export(settings: Settings, args) -> None:
 
 
 def cmd_report(settings: Settings, args) -> None:
-    from .report import write_report
+    from .report import write_pages
 
     tg = _team_games(settings, args)
     on = (args.spots_date or date.today()).isoformat()
-    out = Path(args.out)
-    pages = {"spread": out, "total": out.with_name(f"{out.stem}-totals{out.suffix}")}
     conn = db.connect(settings.db_path)
     _update_picks(conn)
-    for market, path in pages.items():
-        spots = analysis.spots_for_date(conn, on, market=market)
-        results = picks.results_for_date(conn, on, market)
-        if len(spots) and len(results):
-            spots = spots.merge(results, on="game_id", how="left")
-        graded = picks.graded(picks.load_picks(conn, season=args.season, market=market))
-        other = pages["total" if market == "spread" else "spread"].name
-        write_report(tg, path, min_games=args.min_games, spots=spots, spots_date=on, graded=graded,
-                     market=market, other_page=other)
+    pages = write_pages(conn, tg, Path(args.out), on, season=args.season, min_games=args.min_games)
     conn.close()
     print(f"Dashboard written to {pages['spread'].resolve()}\n"
           f"Totals page written to {pages['total'].resolve()}\nOpen either in your browser; the header switches between them.")
@@ -558,6 +591,26 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--saved-only", action="store_true", help="only picks saved on game day (no filled-in history)")
     sp.add_argument("--totals", action="store_true", help="grade the over / under picks instead of spreads")
     sp.set_defaults(func=cmd_grade)
+
+    sp = sub.add_parser("daily", help="the daily routine: yesterday's finals, today's slate, both pages")
+    sp.add_argument("--date", type=_date, help="treat this date as today (default today)")
+    sp.add_argument("--out", default="reports/dashboard.html")
+    sp.add_argument("--force", action="store_true", help="run even in the off-season (May-October)")
+    sp.add_argument("--headed", action="store_true", help="show the browser while scraping")
+    sp.set_defaults(func=cmd_daily)
+
+    sp = sub.add_parser("schedule", help="run `cbbsq daily` automatically (macOS); --serve keeps the web server up")
+    sp.add_argument("--at", action="append", metavar="HH:MM", help="time to run (repeatable; default 10:00 and 17:00)")
+    sp.add_argument("--serve", action="store_true", help="also keep `cbbsq serve` running in the background")
+    sp.add_argument("--remove", action="store_true", help="remove the background jobs")
+    sp.set_defaults(func=cmd_schedule)
+
+    sp = sub.add_parser("serve", help="share the pages with other devices (password protected)")
+    sp.add_argument("--dir", default="reports", help="folder to serve (default reports)")
+    sp.add_argument("--host", default="0.0.0.0", help="address to listen on (default all)")
+    sp.add_argument("--port", type=int, help="port (default 8765, or CBBSQ_SERVE_PORT)")
+    sp.add_argument("--info", action="store_true", help="print the addresses and password, then exit")
+    sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")
     sp.add_argument("--out", default="data/exports")

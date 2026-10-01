@@ -73,15 +73,36 @@ cbbsq status                                    # coverage and recent runs
 * Ranges skip May through October unless you pass `--include-offseason`.
 * A game scraped while live is updated when it is scraped again after it finishes. The `snapshots` table keeps every scrape, so live SQ swings are logged too.
 
-### Run it automatically every morning
+### Run it automatically every day
 
-macOS / Linux (`crontab -e`), 9:00 every day:
+`cbbsq daily` is the whole routine in one command: yesterday's final scores (which grades yesterday's picks), today's games and lines (which saves today's picks), then both pages. It does nothing from May to October, so it can be set up ahead of the season and simply starts working in November. If collecting fails (for example the ShotQuality login expired), it still rebuilds the pages from what is already stored and, on a Mac, shows a notification.
 
-```cron
-0 9 * * * cd /path/to/CBB_SQ_2026 && .venv/bin/cbbsq collect --skip-done >> data/collect.log 2>&1
+**macOS (recommended):**
+
+```bash
+cbbsq schedule                      # runs `cbbsq daily` at 10:00 and 17:00 every day
+cbbsq schedule --at 9:30 --at 18:00 # other times
+cbbsq schedule --serve              # ...and keep the web server running too (see below)
+cbbsq schedule --remove             # undo
 ```
 
-Windows: create a Task Scheduler task that runs `C:\path\to\CBB_SQ_2026\.venv\Scripts\cbbsq.exe collect --skip-done` with "Start in" set to the project folder.
+This installs a LaunchAgent in `~/Library/LaunchAgents`. Unlike cron, launchd runs a job the Mac slept through as soon as it wakes. The 10:00 run picks up the results and the morning lines; the 17:00 run refreshes lines before the evening games. The output goes to `data/daily.log`.
+
+Unattended runs need the saved login to stay valid. Put `SQ_EMAIL` / `SQ_PASSWORD` in `.env` so the scraper can log in again by itself; if your account uses Google sign-in, run `cbbsq login --headed` again whenever a notification says collecting failed.
+
+**Linux (cron):** `0 10,17 * * * cd /path/to/CBB_SQ_2026 && .venv/bin/cbbsq daily >> data/daily.log 2>&1`
+
+**Windows:** a Task Scheduler task that runs `C:\path\to\CBB_SQ_2026\.venv\Scripts\cbbsq.exe daily` with "Start in" set to the project folder.
+
+### Open it on other devices
+
+`cbbsq serve` serves the two pages from your computer to your other devices, behind a password (any username). The password is created on first use and stored in `.env` as `CBBSQ_SERVE_PASSWORD`; `cbbsq serve --info` prints it with the addresses.
+
+* **Same Wi-Fi:** open `http://<your computer's address>:8765/` on the phone or tablet.
+* **Anywhere, including a friend's device:** install [Tailscale](https://tailscale.com) (free) on the computer and on each device, and use the computer's Tailscale address (`100.x.y.z`). For someone with their own Tailscale account, use "Share..." on your computer in the Tailscale admin console: they can then reach only that one machine.
+* The computer has to be on (and awake) for others to load the page. `cbbsq schedule --serve` keeps the server running in the background.
+
+Don't forward the port on your router or put the pages on a public website: the server is plain HTTP, and the pages contain your ShotQuality data, which their terms don't allow you to redistribute.
 
 ## 4. Analyze
 

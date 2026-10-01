@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import analysis
+from . import analysis, picks
 
 LOG_COLS = ["game_date", "team", "opponent", "side", "pts", "opp_pts", "sq_pts", "opp_sq_pts", "sq_ppp",
             "opp_sq_ppp", "ppp", "opp_ppp", "sq_pct", "pre_sq_ppp", "spread", "margin", "sq_margin", "luck"]
@@ -72,3 +72,21 @@ def write_report(tg: pd.DataFrame, out_path: Path, **kwargs) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(template.replace("/*__DATA__*/null", data), encoding="utf-8")
     return out_path
+
+
+def write_pages(conn, tg: pd.DataFrame, out_path: Path, on: str, *, season: int | None = None,
+                min_games: int = 3) -> dict:
+    """Write the spreads page at ``out_path`` and the totals page beside it (``<name>-totals.html``),
+    each linking to the other. ``on`` is the slate shown on the Today tab. Returns {market: path}."""
+    out_path = Path(out_path)
+    pages = {"spread": out_path, "total": out_path.with_name(f"{out_path.stem}-totals{out_path.suffix}")}
+    for market, path in pages.items():
+        spots = analysis.spots_for_date(conn, on, market=market)
+        results = picks.results_for_date(conn, on, market)
+        if len(spots) and len(results):
+            spots = spots.merge(results, on="game_id", how="left")
+        graded = picks.graded(picks.load_picks(conn, season=season, market=market))
+        other = pages["total" if market == "spread" else "spread"].name
+        write_report(tg, path, min_games=min_games, spots=spots, spots_date=on, graded=graded,
+                     market=market, other_page=other)
+    return pages

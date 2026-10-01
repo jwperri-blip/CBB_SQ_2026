@@ -35,6 +35,8 @@ class Settings:
     profile_dir: Path
     browser_channel: str | None
     delay_seconds: float
+    serve_password: str | None = None
+    serve_port: int = 8765
 
     @classmethod
     def load(cls, env_file: str | os.PathLike | None = ".env") -> "Settings":
@@ -52,4 +54,6 @@ class Settings:
             profile_dir=Path(env("CBBSQ_PROFILE_DIR") or ".auth/profile"),
             browser_channel=env("CBBSQ_BROWSER_CHANNEL") or None,
             delay_seconds=float(env("CBBSQ_DELAY_SECONDS") or 4),
+            serve_password=env("CBBSQ_SERVE_PASSWORD") or None,
+            serve_port=int(env("CBBSQ_SERVE_PORT") or 8765),
         )
