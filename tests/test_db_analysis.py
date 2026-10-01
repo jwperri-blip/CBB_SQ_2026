@@ -240,14 +240,24 @@ def test_dashboard_spots_table_sorts_by_any_column(conn, tmp_path, chromium_ok):
         def values(name):
             return [float(v) for v in column(name) if v != "–"]
 
-        gap = values("Gap")
-        assert gap == sorted(gap, reverse=True) and column("Gap")[-1] == "–"  # default: biggest gap first
-        page.locator("#spots thead th", has_text="Gap").first.click()
-        assert values("Gap") == sorted(gap) and column("Gap")[-1] == "–"  # no-pick game stays last
-        page.locator("#spots thead th", has_text="Home opp").click()
-        assert values("Home opp") == sorted(values("Home opp"), reverse=True)
-        page.locator("#spots thead th", has_text="L5 gap").click()
-        assert values("L5 gap") == sorted(values("L5 gap"), reverse=True) and column("L5 gap")[-1] == "–"
-        page.locator("#spots thead th", has_text="Matchup").click()
-        assert column("Matchup") == sorted(column("Matchup"))
+        heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_inner_texts()]
+        assert heads == ["Game", "Bet", "Against", "Luck edge", "From opp. misses", "Last 5"]
+        gap = values("Luck edge")
+        assert gap == sorted(gap, reverse=True) and column("Luck edge")[-1] == "–"  # default: biggest edge first
+        assert column("Bet")[-1].startswith("No pick")
+        page.locator("#spots thead th", has_text="Luck edge").click()
+        assert values("Luck edge") == sorted(gap) and column("Luck edge")[-1] == "–"  # no-pick game stays last
+        page.locator("#spots thead th", has_text="Last 5").click()
+        assert values("Last 5") == sorted(values("Last 5"), reverse=True)
+        page.locator("#spots thead th", has_text="Game").click()
+        games = column("Game")
+        assert games == sorted(games)
+        # Clicking a game opens its details; the link there opens the team to bet.
+        page.locator("#spots thead th", has_text="Luck edge").click()  # biggest edge first again
+        page.locator("#spots tbody tr").first.click()
+        detail = page.locator("#spots tr.detail")
+        assert detail.count() == 1 and "own shooting" in detail.inner_text()
+        detail.locator("button").click()
+        team = page.locator("#tname").inner_text()
+        assert team.startswith("Team ") and column("Bet")[0].startswith(team)
         assert not errors

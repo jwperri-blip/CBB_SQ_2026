@@ -31,8 +31,9 @@
   h1 { font-size: 24px; margin: 0 0 2px; }
   h2 { font-size: 16px; margin: 0 0 12px; }
   h3 { font-size: 13px; margin: 0 0 6px; color: var(--text-2); font-weight: 600; }
-  .perf { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 16px; }
-  @media (max-width: 900px) { .perf { grid-template-columns: 1fr; } }
+  .perf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 16px; }
+  .perf > div { min-width: 0; }
+  @media (max-width: 900px) { .perf { grid-template-columns: minmax(0, 1fr); } }
   .sub { color: var(--text-2); margin: 0 0 18px; }
   .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 16px; }
   .controls label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
@@ -61,6 +62,11 @@
   .tip b { font-weight: 650; }
   .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
   .empty { color: var(--text-2); padding: 24px 0; }
+  .how { color: var(--text-2); font-size: 12px; margin: 10px 0 0; padding-left: 18px; }
+  .how li { margin: 2px 0; }
+  tr.detail { cursor: default; } tr.detail:hover { background: none; }
+  tr.detail td { text-align: left; white-space: normal; color: var(--text-2); font-size: 12px; padding: 4px 8px 12px 24px; }
+  tr.detail button { font: inherit; color: var(--s1); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -70,12 +76,14 @@
 
   <div class="card" id="spotscard">
     <h2 id="spotstitle">Regression spots</h2>
-    <div class="tablewrap" style="max-height:420px"><table id="spots"><thead></thead><tbody></tbody></table></div>
-    <p class="note">Luck per 100 possessions, from each team's games this season before this date: own shot-making
-      (points − SQ points) plus opponents' shooting against it (opp. SQ points − opp. points). Gap = luckier team minus the other.
-      Opp gap = the opponents'-shooting part of the gap, the part most likely to be noise. L5 gap = the same gap over each team's last 5 games, from the same side: positive when recent luck agrees with the season pick, negative when it points the other way.
-      Back = the less lucky team, with its pre-game line. Click any column header to sort; click again to reverse.
-      Teams with fewer than 5 prior games get no pick. A screen, not a backtested model. Click a row to open the team to back.</p>
+    <p class="sub" style="margin:-6px 0 12px">Teams that have been lucky tend to come back to earth. Each game below names the side to bet: the team that has been less lucky.</p>
+    <div class="tablewrap" style="max-height:460px"><table id="spots"><thead></thead><tbody></tbody></table></div>
+    <ul class="how">
+      <li><b>Luck edge:</b> how many more points per 100 possessions the team you're betting against has gained from luck this season (points scored and allowed vs. what the shots were worth). Bigger = stronger spot.</li>
+      <li><b>From opp. misses:</b> how much of that edge comes from opponents missing good shots, which is mostly chance. Positive is better.</li>
+      <li><b>Last 5:</b> the same edge over the last 5 games. Positive means recent games agree.</li>
+      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. Not yet backtested.</li>
+    </ul>
   </div>
 
   <div class="controls">
@@ -370,32 +378,23 @@ function selectTeam(team, quiet) {
 }
 
 let spotsKey = 'gap', spotsDir = -1;
+const spotsOpen = new Set();
 
 function renderSpots() {
   const spots = DATA.spots || [];
   $('spotstitle').textContent = `Regression spots · ${DATA.spots_date || ''}`;
   const t = $('spots'), head = t.tHead, body = t.tBodies[0];
   head.innerHTML = ''; body.innerHTML = '';
-  const num = (k) => (r) => r[k];
-  const lineNum = (r) => { const m = /([-+]?\d+(?:\.\d+)?)\s*$/.exec(r.line || ''); return m ? +m[1] : (/PK$/.test(r.line || '') ? 0 : null); };
-  // k: sort key; v: sort value; f: display; text columns sort A-Z first, numbers high-to-low first.
+  const line = (v) => v == null ? '' : ' ' + (v === 0 ? 'PK' : (v > 0 ? '+' : '') + v);
+  const fade = (r) => r.back ? (r.back === r.home_team ? r.away_team : r.home_team) : null;
+  // v: sort value; f: display; text columns sort A-Z first, numbers high-to-low first.
   const SC = [
-    {k: 'matchup', t: 'Matchup', v: (r) => `${r.away_team} @ ${r.home_team}`, cls: 'l', text: true},
-    {k: 'status', t: 'Status', v: (r) => r.status, cls: 'l', text: true},
-    {k: 'line', t: 'Line', v: lineNum, f: (r) => r.line || '–', cls: 'l'},
-    {k: 'away_luck', t: 'Away luck', v: num('away_luck'), f: (r) => sgn(r.away_luck, f1), color: true},
-    {k: 'away_shoot_luck', t: 'Away shoot', v: num('away_shoot_luck'), f: (r) => sgn(r.away_shoot_luck, f1), color: true},
-    {k: 'away_opp_luck', t: 'Away opp', v: num('away_opp_luck'), f: (r) => sgn(r.away_opp_luck, f1), color: true},
-    {k: 'home_luck', t: 'Home luck', v: num('home_luck'), f: (r) => sgn(r.home_luck, f1), color: true},
-    {k: 'home_shoot_luck', t: 'Home shoot', v: num('home_shoot_luck'), f: (r) => sgn(r.home_shoot_luck, f1), color: true},
-    {k: 'home_opp_luck', t: 'Home opp', v: num('home_opp_luck'), f: (r) => sgn(r.home_opp_luck, f1), color: true},
-    {k: 'away_luck_recent', t: 'Away L5', v: num('away_luck_recent'), f: (r) => sgn(r.away_luck_recent, f1), color: true},
-    {k: 'home_luck_recent', t: 'Home L5', v: num('home_luck_recent'), f: (r) => sgn(r.home_luck_recent, f1), color: true},
-    {k: 'gap', t: 'Gap', v: num('gap'), f: (r) => r.gap == null ? '–' : f1(r.gap)},
-    {k: 'opp_gap', t: 'Opp gap', v: num('opp_gap'), f: (r) => sgn(r.opp_gap, f1), color: true},
-    {k: 'l5_gap', t: 'L5 gap', v: num('l5_gap'), f: (r) => sgn(r.l5_gap, f1), color: true},
-    {k: 'back', t: 'Back', v: (r) => r.back, cls: 'l', text: true},
-    {k: 'back_line', t: 'Back line', v: num('back_line'), f: (r) => r.back_line == null ? '–' : (r.back_line > 0 ? '+' : '') + r.back_line},
+    {k: 'game', t: 'Game', v: (r) => `${r.away_team} @ ${r.home_team}`, cls: 'l', text: true},
+    {k: 'back', t: 'Bet', v: (r) => r.back, f: (r) => r.back ? r.back + line(r.back_line) : 'No pick (under 5 games)', cls: 'l', text: true, bold: true},
+    {k: 'fade', t: 'Against', v: fade, f: (r) => fade(r) || '–', cls: 'l', text: true},
+    {k: 'gap', t: 'Luck edge', v: (r) => r.gap, f: (r) => r.gap == null ? '–' : f1(r.gap)},
+    {k: 'opp_gap', t: 'From opp. misses', v: (r) => r.opp_gap, f: (r) => sgn(r.opp_gap, f1), color: true},
+    {k: 'l5_gap', t: 'Last 5', v: (r) => r.l5_gap, f: (r) => sgn(r.l5_gap, f1), color: true},
   ];
   const hr = head.insertRow();
   for (const c of SC) {
@@ -414,19 +413,40 @@ function renderSpots() {
   const rs = [...spots].sort((a, b) => {
     const x = col.v(a), y = col.v(b);
     if (x == null && y == null) return 0;
-    if (x == null) return 1; if (y == null) return -1;  // games without a value always last
+    if (x == null) return 1; if (y == null) return -1;  // games without a pick always last
     return (col.text ? String(x).localeCompare(String(y)) : x - y) * spotsDir;
   });
+  const teamLine = (r, side) => {
+    const name = r[`${side}_team`], G = r[`${side}_G`];
+    if (r[`${side}_luck`] == null) return `${name}: no games yet this season.`;
+    return `${name} (${G} games): luck ${sgn(r[`${side}_luck`], f1)} per 100 poss. (${sgn(r[`${side}_shoot_luck`], f1)} own shooting, `
+      + `${sgn(r[`${side}_opp_luck`], f1)} opponents missing). Last 5: ${sgn(r[`${side}_luck_recent`], f1)}.`;
+  };
   for (const r of rs) {
     const row = body.insertRow();
-    if (r.back && DATA.logs[r.back]) row.onclick = () => { selectTeam(r.back); $('teamcard').scrollIntoView({behavior: 'smooth'}); };
-    else row.style.cursor = 'default';
+    const open = spotsOpen.has(r.game_id);
+    row.title = 'Click for details';
+    row.onclick = () => { open ? spotsOpen.delete(r.game_id) : spotsOpen.add(r.game_id); renderSpots(); };
+    if (open) row.className = 'sel';
     for (const c of SC) {
       const td = row.insertCell();
       td.textContent = c.f ? c.f(r) : (c.v(r) ?? '–');
       if (c.cls) td.className = c.cls;
+      if (c.bold && r.back) td.style.fontWeight = '600';
       const v = c.v(r);
       if (c.color && v != null && Math.abs(v) >= 0.05) td.classList.add(v > 0 ? 'pos' : 'negv');
+    }
+    if (!open) continue;
+    const d = body.insertRow(); d.className = 'detail';
+    const td = d.insertCell(); td.colSpan = SC.length;
+    for (const txt of [teamLine(r, 'away'), teamLine(r, 'home'),
+                       `Pre-game line: ${r.line || '–'} · Total: ${r.total_pre ?? '–'} · Status: ${r.status || '–'}`]) {
+      const p = document.createElement('div'); p.textContent = txt; td.append(p);
+    }
+    if (r.back && DATA.logs[r.back]) {
+      const btn = document.createElement('button'); btn.textContent = `Open ${r.back}'s trends`;
+      btn.onclick = (ev) => { ev.stopPropagation(); selectTeam(r.back); $('teamcard').scrollIntoView({behavior: 'smooth'}); };
+      td.append(btn);
     }
   }
 }

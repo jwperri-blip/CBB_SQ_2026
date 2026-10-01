@@ -93,7 +93,7 @@ cbbsq ratings                         # opponent-adjusted SQ ratings (and --metr
 cbbsq team "Penn"                     # game log plus 5-game rolling SQ trends (partial names work)
 cbbsq trending                        # heating up: last 5 vs season   (--cooling for drops)
 cbbsq luck                            # results beating their shot quality (--unlucky for the reverse)
-cbbsq spots                           # today's games ranked by the luck gap between the teams (--date, --min-gap)
+cbbsq spots                           # today's games: which side luck says to bet (--date, --details)
 cbbsq report                          # reports/dashboard.html, an interactive dashboard
 cbbsq export                          # CSVs for Excel / Google Sheets in data/exports/
 ```
@@ -102,12 +102,16 @@ Most commands accept `--season 2026` (the 2025-26 season), `--since` / `--until`
 
 ### Regression spots (today's slate)
 
-`cbbsq spots` (and the table at the top of the dashboard) lists every game stored for a date and ranks it by how much luckier one team has been than the other. Collect the slate first with `cbbsq collect --date today` so the scheduled games and their pre-game lines are in the database; `cbbsq report --spots-date` picks a date other than today.
+Teams that have been lucky tend to come back to earth. `cbbsq spots` (and the table at the top of the dashboard) lists each game on a date and names the side to bet: the team that has been **less** lucky. Collect the slate first with `cbbsq collect --date today`; `--date` (or `cbbsq report --spots-date`) picks another day.
 
-* Luck is per 100 possessions and uses only that season's games played **before** the slate date, so a past date shows exactly what you would have seen that morning.
-* It is split into **shoot** (own points minus own SQ points, which is partly real shooting skill) and **opp** (opponents' SQ points minus their points, which is mostly noise). `opp_gap` is the opponents'-shooting part of the gap. `L5_gap` is the gap over each team's last 5 games (`--recent`), from the same side: positive when recent luck agrees with the season pick.
-* **Back** is the less lucky team, with its pre-game line. Teams with fewer than 5 prior games (`--min-games`) get no pick.
-* This is a screen, not a validated model: no betting threshold has been backtested yet.
+| Column | Meaning |
+|---|---|
+| Bet / Against | The less lucky team (with its pre-game line) and the luckier team |
+| Luck edge | How many more points per 100 possessions the team you bet against has gained from luck this season. Bigger = stronger spot |
+| From opp. misses | How much of that edge comes from opponents missing good shots, which is mostly chance. Positive is better |
+| Last 5 | The same edge over the last 5 games. Positive means recent games agree |
+
+Click a game on the dashboard (or add `--details` in the terminal) for each team's numbers. Only games before the date are used, so a past date shows what you would have seen that morning. Teams with fewer than 5 earlier games get no pick. This is a screen, not a backtested model.
 
 ### What the metrics mean
 

@@ -259,17 +259,36 @@ def cmd_spots(settings: Settings, args) -> None:
         return
     if args.min_gap:
         spots = spots[spots["gap"] >= args.min_gap]
-    print(f"Regression spots for {on}: luck per 100 possessions from games before that date "
-          f"(shoot = own shot-making, opp = opponents' shooting). Back = the less lucky team.\n")
+    fade = spots["away_team"].where(spots["back"] == spots["home_team"], spots["home_team"]).where(spots["back"].notna())
+    bet = spots["back"] + spots["back_line"].map(lambda v: "" if pd.isna(v) else (" PK" if v == 0 else f" {v:+g}"))
     view = pd.DataFrame({
-        "matchup": spots["away_team"] + " @ " + spots["home_team"],
-        "line": spots["line"],
-        "away_luck": spots["away_luck"], "away_shoot": spots["away_shoot_luck"], "away_opp": spots["away_opp_luck"],
-        "home_luck": spots["home_luck"], "home_shoot": spots["home_shoot_luck"], "home_opp": spots["home_opp_luck"],
-        f"away_L{args.recent}": spots["away_luck_recent"], f"home_L{args.recent}": spots["home_luck_recent"],
-        "gap": spots["gap"], "opp_gap": spots["opp_gap"], f"L{args.recent}_gap": spots["l5_gap"], "back": spots["back"], "back_line": spots["back_line"],
+        "game": spots["away_team"] + " @ " + spots["home_team"],
+        "bet": bet.fillna("no pick (under %d games)" % args.min_games),
+        "against": fade.fillna("-"),
+        "luck_edge": spots["gap"],
+        "from_opp_misses": spots["opp_gap"],
+        f"last_{args.recent}": spots["l5_gap"],
     })
-    _print(view.set_index("matchup"), digits=1, rows=args.top)
+    print(f"Regression spots for {on}. Bet = the less lucky team.\n"
+          f"  luck_edge        extra points per 100 possessions the team you bet against has gained from luck\n"
+          f"  from_opp_misses  the part of that edge from opponents missing good shots (mostly chance; positive is better)\n"
+          f"  last_{args.recent}           the same edge over the last {args.recent} games (positive = recent games agree)\n")
+    for c in ("luck_edge", "from_opp_misses", f"last_{args.recent}"):
+        signed = c != "luck_edge"
+        view[c] = view[c].map(lambda v: "-" if pd.isna(v) else (f"{v:+.1f}" if signed else f"{v:.1f}"))
+    _print(view.set_index("game"), rows=args.top)
+    if args.details:
+        print("\nEach team's luck per 100 possessions, split into own shooting and opponents missing:")
+        for r in spots.head(args.top or len(spots)).itertuples():
+            print(f"\n{r.away_team} @ {r.home_team}  (line: {r.line or '-'})")
+            for side in ("away", "home"):
+                name, luck = getattr(r, f"{side}_team"), getattr(r, f"{side}_luck")
+                if pd.isna(luck):
+                    print(f"  {name}: no games yet this season")
+                    continue
+                print(f"  {name} ({getattr(r, f'{side}_G')} games): {luck:+.1f} = "
+                      f"{getattr(r, f'{side}_shoot_luck'):+.1f} own shooting, {getattr(r, f'{side}_opp_luck'):+.1f} "
+                      f"opponents missing; last {args.recent}: {getattr(r, f'{side}_luck_recent'):+.1f}")
 
 
 def cmd_export(settings: Settings, args) -> None:
@@ -385,7 +404,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--date", type=_date, help="slate date (default today)")
     sp.add_argument("--min-games", type=int, default=5, help="prior games each team needs for a pick")
     sp.add_argument("--recent", type=int, default=5, help="games in the recent-luck column")
-    sp.add_argument("--min-gap", type=float, help="only show games with at least this luck gap")
+    sp.add_argument("--min-gap", type=float, help="only show games with at least this luck edge")
+    sp.add_argument("--details", action="store_true", help="also print each team's luck breakdown")
     sp.add_argument("--top", type=int, help="show only the first N rows")
     sp.set_defaults(func=cmd_spots)
 
