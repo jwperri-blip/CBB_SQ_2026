@@ -262,6 +262,20 @@ def load_slate(conn: sqlite3.Connection, on: str) -> pd.DataFrame:
         conn, params=[on])
 
 
+def sq_calibration(prior: pd.DataFrame) -> tuple[float, float, float]:
+    """From earlier games: actual points per (pregame SQ PPP x possession), the home edge the projection
+    misses, and average possessions. Puts ShotQuality's projection on the same scale as scores and lines."""
+    avg_poss = float(prior["poss"].mean()) if len(prior) and prior["poss"].notna().any() else 68.0
+    d = prior.dropna(subset=["pre_sq_ppp", "opp_pre_sq_ppp", "pts", "opp_pts", "poss"]) if len(prior) else prior
+    if len(d) < 30:
+        return 1.0, 0.0, avg_poss
+    ratio = float(d["pts"].sum() / (d["pre_sq_ppp"] * d["poss"]).sum())
+    home = d[d["side"] == "home"]
+    proj = (home["pre_sq_ppp"] - home["opp_pre_sq_ppp"]) * home["poss"] * ratio
+    home_bias = float((home["margin"] - proj).mean()) if len(home) >= 15 else 0.0
+    return ratio, home_bias, avg_poss
+
+
 def regression_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 5,
                      recent: int = 5) -> pd.DataFrame:
     """Rank a slate by the luck gap between the two teams.
@@ -270,16 +284,18 @@ def regression_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 
     ``gap`` = luckier team's luck minus the other's (per 100 possessions); ``opp_gap`` is the same for
     opponents' shooting alone, and ``l5_gap`` the same over each team's last ``recent`` games (positive when
     recent luck points the same way as the season). ``back`` is the less lucky team, with its pre-game line in ``back_line``.
-    Teams with fewer than ``min_games`` prior games get no pick. This is a screen, not a validated
-    model: no threshold has been backtested yet.
+    ``sq_edge`` is how many points ShotQuality's pregame projection likes the same bet by against the line
+    (negative = the projection prefers the other side). Teams with fewer than ``min_games`` prior games get no pick.
     """
     cols = ["game_id", "status", "away_team", "home_team", "line", "total_pre",
             "away_G", "away_shoot_luck", "away_opp_luck", "away_luck", "away_luck_recent",
             "home_G", "home_shoot_luck", "home_opp_luck", "home_luck", "home_luck_recent",
-            "gap", "opp_gap", "l5_gap", "back", "back_line"]
+            "gap", "opp_gap", "l5_gap", "sq_edge", "back", "back_line"]
     if slate.empty:
         return pd.DataFrame(columns=cols)
     luck = team_luck(tg, recent=recent)
+    ratio, home_bias, avg_poss = sq_calibration(tg)
+    team_poss = tg.groupby("team")["poss"].mean() if len(tg) else pd.Series(dtype=float)
     out = []
     for g in slate.itertuples(index=False):
         row = {"game_id": g.game_id, "status": g.status, "away_team": g.away_team, "home_team": g.home_team,
@@ -306,8 +322,16 @@ def regression_spots(tg: pd.DataFrame, slate: pd.DataFrame, *, min_games: int = 
             row["l5_gap"] = (row["away_luck_recent"] - row["home_luck_recent"]) * sign
             row["back"] = g.home_team if back_home else g.away_team
             row["back_line"] = (hs if back_home else -hs) if hs is not None else None
+            a_pre, h_pre = getattr(g, "away_pregame_sq_ppp", None), getattr(g, "home_pregame_sq_ppp", None)
+            row["sq_edge"] = np.nan
+            if hs is not None and pd.notna(a_pre) and pd.notna(h_pre):
+                tp = [team_poss.get(t) for t in (g.away_team, g.home_team)]
+                tp = [v for v in tp if v is not None and pd.notna(v)]
+                poss = float(np.mean(tp)) if tp else avg_poss
+                home_vs_line = (h_pre - a_pre) * poss * ratio + home_bias + hs  # projected home margin + home spread
+                row["sq_edge"] = home_vs_line * sign
         else:
-            row.update(gap=np.nan, opp_gap=np.nan, l5_gap=np.nan, back=None, back_line=None)
+            row.update(gap=np.nan, opp_gap=np.nan, l5_gap=np.nan, sq_edge=np.nan, back=None, back_line=None)
         out.append(row)
     df = pd.DataFrame(out, columns=cols)
     return df.sort_values("gap", ascending=False, na_position="last").reset_index(drop=True)

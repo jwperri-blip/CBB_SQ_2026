@@ -241,7 +241,7 @@ def test_dashboard_spots_table_sorts_by_any_column(conn, tmp_path, chromium_ok):
             return [float(v) for v in column(name) if v != "–"]
 
         heads = [h.rstrip(" ↓↑") for h in page.locator("#spots thead th").all_inner_texts()]
-        assert heads == ["Game", "Bet", "Against", "Luck edge", "From opp. misses", "Last 5"]
+        assert heads == ["Game", "Bet", "Against", "Luck edge", "From opp. misses", "Last 5", "SQ edge"]
         gap = values("Luck edge")
         assert gap == sorted(gap, reverse=True) and column("Luck edge")[-1] == "–"  # default: biggest edge first
         assert column("Bet")[-1].startswith("No pick")

@@ -9,6 +9,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from . import analysis, db, picks
@@ -253,7 +254,7 @@ def _update_picks(conn) -> None:
     """Save today's (and any missing past) picks, and grade everything that has finished."""
     new, graded = picks.update(conn)
     if new or graded:
-        print(f"Picks: {new} new saved, {graded} newly graded (`cbbsq grade` shows what's working).\n")
+        print(f"Picks: {new} new saved, {graded} newly graded (`cbbsq grade` finds the winning thresholds).\n")
 
 
 def _result_text(result, cover) -> str:
@@ -269,7 +270,7 @@ def cmd_spots(settings: Settings, args) -> None:
     conn = db.connect(settings.db_path)
     _update_picks(conn)
     spots = analysis.spots_for_date(conn, on, min_games=args.min_games, recent=args.recent)
-    results = picks.luck_results(conn, on).set_index("game_id")
+    results = picks.results_for_date(conn, on).set_index("game_id")
     conn.close()
     if spots.empty:
         print(f"No games stored for {on}. Run `cbbsq collect --date {on}` first.")
@@ -285,6 +286,7 @@ def cmd_spots(settings: Settings, args) -> None:
         "luck_edge": spots["gap"],
         "from_opp_misses": spots["opp_gap"],
         f"last_{args.recent}": spots["l5_gap"],
+        "sq_edge": spots["sq_edge"],
     })
     if len(results):
         view["result"] = [_result_text(*results.loc[g][["result", "cover"]]) if g in results.index else "-"
@@ -292,10 +294,11 @@ def cmd_spots(settings: Settings, args) -> None:
     print(f"Regression spots for {on}. Bet = the less lucky team.\n"
           f"  luck_edge        extra points per 100 possessions the team you bet against has gained from luck\n"
           f"  from_opp_misses  the part of that edge from opponents missing good shots (mostly chance; positive is better)\n"
-          f"  last_{args.recent}           the same edge over the last {args.recent} games (positive = recent games agree)"
+          f"  last_{args.recent}           the same edge over the last {args.recent} games (positive = recent games agree)\n"
+          f"  sq_edge          points ShotQuality's pregame projection likes the same bet by against the line"
           + ("\n  result           how the bet did against the pre-game line (W/L/P and points beat it by)" if len(results) else "")
           + "\n")
-    for c in ("luck_edge", "from_opp_misses", f"last_{args.recent}"):
+    for c in ("luck_edge", "from_opp_misses", f"last_{args.recent}", "sq_edge"):
         signed = c != "luck_edge"
         view[c] = view[c].map(lambda v: "-" if pd.isna(v) else (f"{v:+.1f}" if signed else f"{v:.1f}"))
     _print(view.set_index("game"), rows=args.top)
@@ -313,55 +316,61 @@ def cmd_spots(settings: Settings, args) -> None:
                       f"opponents missing; last {args.recent}: {getattr(r, f'{side}_luck_recent'):+.1f}")
 
 
+def _pct(v) -> str:
+    return "-" if v is None or pd.isna(v) else f"{v:.1%}"
+
+
+def _stats_view(df: pd.DataFrame) -> pd.DataFrame:
+    view = df.copy()
+    view["win_pct"] = view["win_pct"].map(_pct)
+    view["plus_minus"] = view["plus_minus"].map(lambda v: "-" if pd.isna(v) else f"+/-{v:.1%}")
+    view["units"] = view["units"].map(lambda v: f"{v:+.1f}")
+    view["roi"] = view["roi"].map(lambda v: "-" if pd.isna(v) else f"{v:+.1%}")
+    return view
+
+
 def cmd_grade(settings: Settings, args) -> None:
     conn = db.connect(settings.db_path)
     _update_picks(conn)
     allp = picks.load_picks(conn, season=args.season, saved_only=args.saved_only)
     conn.close()
-    card = picks.scorecard(allp)
-    if card.empty:
+    g = picks.graded(allp)
+    if g.empty:
         print("No graded picks yet. Picks are saved when you run `cbbsq spots` or `cbbsq report`, "
               "and graded once the games are final.")
         return
-    pending = int(allp["result"].isna().sum())
-    saved = int((allp["source"] == "saved").sum())
-    print(f"What's working: every signal's picks graded against the pre-game line at -110 "
-          f"(break-even {picks.BREAKEVEN:.1%}).")
-    print(f"{len(allp)} picks ({saved} saved on game day, {len(allp) - saved} filled in afterwards), "
-          f"{pending} waiting on results.")
-    print("+/- is the 95% range around the win %: a record is only convincing once that range clears 52.4%.\n")
-    view = card.copy()
-    view["win_pct"] = view["win_pct"].map(lambda v: "-" if pd.isna(v) else f"{v:.1%}")
-    view["plus_minus"] = view["plus_minus"].map(lambda v: "-" if pd.isna(v) else f"+/-{v:.1%}")
-    view["units"] = view["units"].map(lambda v: f"{v:+.1f}")
-    view["roi"] = view["roi"].map(lambda v: "-" if pd.isna(v) else f"{v:+.1%}")
-    view["signal"] = view["signal"].where(view["edge_size"] == "All", "")
-    _print(view.drop(columns="strategy").set_index("signal"))
-
-
-def cmd_picks(settings: Settings, args) -> None:
-    on = (args.date or date.today()).isoformat()
-    conn = db.connect(settings.db_path)
-    _update_picks(conn)
-    df = pd.read_sql_query(
-        "SELECT p.*, g.away_team, g.home_team FROM picks p JOIN games g ON g.game_id = p.game_id "
-        "WHERE p.pick_date = ? ORDER BY p.strategy, p.edge DESC", conn, params=[on])
-    conn.close()
-    if df.empty:
-        print(f"No picks for {on}. Collect that date first (`cbbsq collect --date {on}`).")
-        return
-    if args.signal:
-        df = df[df["strategy"] == args.signal]
-    print(f"Picks for {on} (edge: luck per 100 possessions for the luck signals, points vs the line for SQ):\n")
-    view = pd.DataFrame({
-        "signal": df["strategy"].map(picks.STRATEGIES),
-        "game": df["away_team"] + " @ " + df["home_team"],
-        "bet": [f"{p} {v:g}" if p in ("Over", "Under") else f"{p} {v:+g}" if v else f"{p} PK"
-                for p, v in zip(df["pick"], df["line"])],
-        "edge": df["edge"].map(lambda v: f"{v:.1f}"),
-        "result": [_result_text(r, c) for r, c in zip(df["result"], df["cover"])],
-    })
-    _print(view.set_index("signal"))
+    target = args.target / 100 if args.target > 1 else args.target
+    mins = {"luck_edge": args.min_luck, "opp_edge": args.min_opp, "last5_edge": args.min_last5, "sq_edge": args.min_sq}
+    base = picks.filter_picks(g, mins)
+    filtered = any(v is not None for v in mins.values())
+    overall = picks.stats(g)
+    print(f"Every regression spots Bet, graded against its pre-game line at -110 (break-even {picks.BREAKEVEN:.1%}).")
+    print(f"All picks: {overall['bets']} bets, {overall['record']}, {_pct(overall['win_pct'])}, {overall['units']:+.1f} units."
+          f" {int(allp['result'].isna().sum())} waiting on results.")
+    if filtered:
+        s = picks.stats(base)
+        rule = " and ".join(f"{picks.METRICS[m]} >= {v:g}" for m, v in mins.items() if v is not None)
+        print(f"With {rule}: {s['bets']} bets, {s['record']}, {_pct(s['win_pct'])} "
+              f"(+/-{s['plus_minus']:.1%}), {s['units']:+.1f} units." if s["bets"] else f"With {rule}: no bets.")
+    print(f"\nLowest threshold that wins {target:.0%} or more over at least {args.min_bets} bets"
+          + (" (on top of the filter above)" if filtered else "") + ":\n")
+    rows = []
+    for m, name in picks.METRICS.items():
+        hit = picks.threshold_for(base, m, target, args.min_bets)
+        rows.append({"metric": name, "bet when": ("any value" if hit["any"] else f">= {hit['threshold']:g}") if hit else "not reached",
+                     **({k: hit[k] for k in ("bets", "record", "win_pct", "plus_minus", "units", "roi")} if hit else
+                        {"bets": 0, "record": "-", "win_pct": np.nan, "plus_minus": np.nan, "units": 0.0, "roi": np.nan})})
+    _print(_stats_view(pd.DataFrame(rows)).set_index("metric"))
+    metrics = [args.metric] if args.metric else list(picks.METRICS)
+    for m in metrics:
+        lad = picks.ladder(base, m)
+        if lad.empty:
+            continue
+        print(f"\n{picks.METRICS[m]}: win % at each threshold")
+        lad["threshold"] = lad["threshold"].map(lambda v: f">= {v:g}")
+        _print(_stats_view(lad).set_index("threshold"))
+    print("\n+/- is the 95% range around the win %. A threshold picked by looking at results flatters itself:"
+          "\ntrust it once the low end of the range clears 52.4%, and check it holds on the next season (--season).")
 
 
 def cmd_export(settings: Settings, args) -> None:
@@ -387,12 +396,12 @@ def cmd_report(settings: Settings, args) -> None:
     conn = db.connect(settings.db_path)
     _update_picks(conn)
     spots = analysis.spots_for_date(conn, on)
-    results = picks.luck_results(conn, on)
+    results = picks.results_for_date(conn, on)
     if len(spots) and len(results):
         spots = spots.merge(results, on="game_id", how="left")
-    card = picks.scorecard(picks.load_picks(conn, season=args.season))
+    graded = picks.graded(picks.load_picks(conn, season=args.season))
     conn.close()
-    path = write_report(tg, Path(args.out), min_games=args.min_games, spots=spots, spots_date=on, scorecard=card)
+    path = write_report(tg, Path(args.out), min_games=args.min_games, spots=spots, spots_date=on, graded=graded)
     print(f"Dashboard written to {path.resolve()} - open it in your browser.")
 
 
@@ -487,15 +496,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--top", type=int, help="show only the first N rows")
     sp.set_defaults(func=cmd_spots)
 
-    sp = sub.add_parser("grade", help="grade saved picks and show what's working")
+    sp = sub.add_parser("grade", help="grade the saved picks and find the thresholds that win")
+    sp.add_argument("--target", type=float, default=55, help="win %% to look for (default 55)")
+    sp.add_argument("--min-bets", type=int, default=50, help="fewest bets a threshold must have (default 50)")
+    sp.add_argument("--metric", choices=list(picks.METRICS), help="only show this metric's win %% ladder")
+    sp.add_argument("--min-luck", type=float, help="only picks with at least this luck edge")
+    sp.add_argument("--min-opp", type=float, help="only picks with at least this much from opp. misses")
+    sp.add_argument("--min-last5", type=float, help="only picks with at least this last-5 edge")
+    sp.add_argument("--min-sq", type=float, help="only picks with at least this SQ edge")
     sp.add_argument("--season", type=int, help="season by end year, e.g. 2026 for 2025-26")
     sp.add_argument("--saved-only", action="store_true", help="only picks saved on game day (no filled-in history)")
     sp.set_defaults(func=cmd_grade)
-
-    sp = sub.add_parser("picks", help="every signal's picks for one date, with results once graded")
-    sp.add_argument("--date", type=_date, help="date (default today)")
-    sp.add_argument("--signal", choices=list(picks.STRATEGIES), help="only this signal")
-    sp.set_defaults(func=cmd_picks)
 
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")
     sp.add_argument("--out", default="data/exports")

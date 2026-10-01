@@ -64,6 +64,9 @@
   .empty { color: var(--text-2); padding: 24px 0; }
   .how { color: var(--text-2); font-size: 12px; margin: 10px 0 0; padding-left: 18px; }
   .how li { margin: 2px 0; }
+  .ctlsep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+  .linkbtn { font: inherit; font-size: 12px; color: var(--s1); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; }
+  h3 { font-size: 14px; margin: 8px 0 8px; }
   tr.detail { cursor: default; } tr.detail:hover { background: none; }
   tr.detail td { text-align: left; white-space: normal; color: var(--text-2); font-size: 12px; padding: 4px 8px 12px 24px; }
   tr.detail button { font: inherit; color: var(--s1); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
@@ -82,7 +85,8 @@
       <li><b>Luck edge:</b> how many more points per 100 possessions the team you're betting against has gained from luck this season (points scored and allowed vs. what the shots were worth). Bigger = stronger spot.</li>
       <li><b>From opp. misses:</b> how much of that edge comes from opponents missing good shots, which is mostly chance. Positive is better.</li>
       <li><b>Last 5:</b> the same edge over the last 5 games. Positive means recent games agree.</li>
-      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. See <b>What's working</b> below for how this pick has done.</li>
+      <li><b>SQ edge:</b> how many points ShotQuality's pregame projection likes the same bet by against the line.</li>
+      <li>Click a game for each team's numbers; click a column header to sort. Uses only games before this date. <b>Find your threshold</b> below shows which numbers have won, and ticks today's games that pass your filter.</li>
     </ul>
   </div>
 
@@ -100,14 +104,29 @@
   </div>
 
   <div class="card" id="workcard">
-    <h2>What's working</h2>
-    <p class="sub" style="margin:-6px 0 12px">Every signal's picks, graded against the pre-game line at −110. Break-even is 52.4%.</p>
-    <div class="tablewrap" style="max-height:none"><table id="work"><thead></thead><tbody></tbody></table></div>
+    <h2>Find your threshold</h2>
+    <p class="sub" style="margin:-6px 0 12px" id="worksub">Every regression spots Bet so far, graded against its pre-game line at −110. Break-even is 52.4%.</p>
+    <div class="controls">
+      <label>Target win %<input id="tgt" type="number" min="50" max="80" step="0.5" value="55" style="width:90px"></label>
+      <label>Min. bets<input id="tminb" type="number" min="1" step="5" value="50" style="width:90px"></label>
+      <span class="ctlsep"></span>
+      <label>Luck edge ≥<input id="f_luck_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
+      <label>From opp. misses ≥<input id="f_opp_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
+      <label>Last 5 ≥<input id="f_last5_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
+      <label>SQ edge ≥<input id="f_sq_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
+      <button id="fclear" type="button" class="linkbtn">Clear filter</button>
+    </div>
+    <div class="tiles" id="worktiles"></div>
+    <h3 id="findtitle">Lowest threshold that wins 55%</h3>
+    <div class="tablewrap" style="max-height:none"><table id="find"><thead></thead><tbody></tbody></table></div>
+    <h3 style="margin-top:18px">Win % at each threshold
+      <select id="lmetric" style="margin-left:8px"></select></h3>
+    <div class="tablewrap" style="max-height:none"><table id="ladder"><thead></thead><tbody></tbody></table></div>
     <ul class="how">
-      <li><b>Signals:</b> the three luck signals bet the less lucky team (season, opponents' misses only, last 5 games); "all three agree" is the season pick only when the other two point the same way. The two SQ signals turn ShotQuality's pregame SQ projection into a margin and a total and bet whichever side of the line it favors.</li>
-      <li><b>Edge size:</b> each signal's picks split into thirds, weakest to strongest. A signal that works should win more as the edge grows.</li>
-      <li><b>±:</b> the 95% range around the win %. A record is only convincing once the low end clears 52.4%, which takes a few hundred bets.</li>
-      <li>Picks are saved each time you run <code>cbbsq report</code> or <code>cbbsq spots</code> and graded once games are final. Past dates are filled in using only the games before each date.</li>
+      <li><b>How to use it:</b> set the win % you want. The first table shows, for each number, the lowest value that has hit it. Click a row to add it to the filter, then the spots table above ticks the games that qualify today.</li>
+      <li><b>Filter:</b> the "≥" boxes stack. Both tables then only look at picks that pass the filter, so you can test combinations such as Luck edge ≥ 4 and Last 5 ≥ 0.</li>
+      <li><b>SQ edge:</b> how many points ShotQuality's pregame projection likes the same bet by against the line. Negative means the projection prefers the other side.</li>
+      <li><b>±:</b> the 95% range around the win %. A threshold found by looking back at results flatters itself, so trust it once the low end clears 52.4%, and check that it holds on new games.</li>
     </ul>
   </div>
 
@@ -408,6 +427,11 @@ function renderSpots() {
     {k: 'opp_gap', t: 'From opp. misses', v: (r) => r.opp_gap, f: (r) => sgn(r.opp_gap, f1), color: true},
     {k: 'l5_gap', t: 'Last 5', v: (r) => r.l5_gap, f: (r) => sgn(r.l5_gap, f1), color: true},
   ];
+  SC.push({k: 'sq_edge', t: 'SQ edge', v: (r) => r.sq_edge, f: (r) => sgn(r.sq_edge, f1), color: true});
+  const flt = activeFilter();
+  if (Object.keys(flt).length) {
+    SC.push({k: 'meets', t: 'Your filter', v: (r) => r.back ? (meets(r, flt) ? 1 : 0) : null, f: (r) => !r.back ? '–' : meets(r, flt) ? '✓' : ''});
+  }
   if (spots.some((r) => r.result != null)) {
     SC.push({k: 'cover', t: 'Result', v: (r) => r.cover, color: true,
              f: (r) => r.result == null ? '–' : r.result === 'V' ? 'void' : `${r.result} ${sgn(r.cover, (v) => String(+v.toFixed(1)))}`});
@@ -467,35 +491,114 @@ function renderSpots() {
   }
 }
 
-function renderWork() {
-  const rows = DATA.scorecard || [];
-  const t = $('work'); t.tHead.innerHTML = ''; t.tBodies[0].innerHTML = '';
-  const H = [['Signal', 'l'], ['Edge size', 'l'], ['Bets'], ['Record'], ['Win %'], ['±'], ['Units'], ['ROI']];
-  const hr = t.tHead.insertRow();
-  for (const [h, cls] of H) { const th = document.createElement('th'); th.textContent = h; th.style.cursor = 'default'; if (cls) th.className = cls; hr.append(th); }
-  if (!rows.length) {
-    const td = t.tBodies[0].insertRow().insertCell(); td.colSpan = H.length; td.className = 'l empty';
-    td.textContent = 'No graded picks yet. Run `cbbsq report` after games finish.';
-    return;
+const MET = [['luck_edge', 'Luck edge', 'gap'], ['opp_edge', 'From opp. misses', 'opp_gap'],
+             ['last5_edge', 'Last 5', 'l5_gap'], ['sq_edge', 'SQ edge', 'sq_edge']];
+const BE = 110 / 210;
+const pctTxt = (v) => v == null || isNaN(v) ? '–' : (100 * v).toFixed(1) + '%';
+
+function store(key, val) { try { if (val == null) localStorage.removeItem(key); else localStorage.setItem(key, val); } catch (e) {} }
+function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+function activeFilter() {
+  const f = {};
+  for (const [m] of MET) { const el = $('f_' + m); if (el && el.value !== '' && !isNaN(+el.value)) f[m] = +el.value; }
+  return f;
+}
+// A spots row (gap / opp_gap / l5_gap / sq_edge) meets the filter.
+function meets(r, f) { return MET.every(([m, , col]) => f[m] == null || (r[col] != null && r[col] >= f[m])); }
+function passes(p, f) { return Object.entries(f).every(([m, v]) => p[m] != null && p[m] >= v); }
+
+function tstats(rows) {
+  let w = 0, l = 0, p = 0, u = 0;
+  for (const r of rows) { if (r.result === 'W') w++; else if (r.result === 'L') l++; else if (r.result === 'P') p++; u += r.units || 0; }
+  const d = w + l, pct = d ? w / d : null, bets = w + l + p;
+  return {bets, record: `${w}-${l}` + (p ? `-${p}` : ''), pct, pm: d ? 1.96 * Math.sqrt(pct * (1 - pct) / d) : null,
+          units: u, roi: bets ? u / bets : null};
+}
+function thresholdFor(rows, m, target, minBets) {
+  const vals = rows.map((r) => r[m]).filter((v) => v != null);
+  if (!vals.length) return null;
+  const lo = Math.floor(Math.min(...vals) * 2) / 2, hi = Math.ceil(Math.max(...vals) * 2) / 2;
+  for (let t = lo; t <= hi + 1e-9; t += 0.5) {
+    const sub = rows.filter((r) => r[m] != null && r[m] >= t - 1e-9);
+    if (sub.length < minBets) break;
+    const s = tstats(sub);
+    if (s.pct != null && s.pct >= target) return {t: +t.toFixed(1), any: sub.length === vals.length, ...s};
   }
-  const BE = 110 / 210, pct = (v) => v == null ? '–' : (100 * v).toFixed(1) + '%';
+  return null;
+}
+function quantile(sorted, q) {
+  const i = (sorted.length - 1) * q, a = Math.floor(i), b = Math.ceil(i);
+  return sorted[a] + (sorted[b] - sorted[a]) * (i - a);
+}
+function ladderRows(rows, m) {
+  const vals = rows.map((r) => r[m]).filter((v) => v != null).sort((a, b) => a - b);
+  if (!vals.length) return [];
+  const ts = [...new Set([0, .1, .2, .3, .4, .5, .6, .7, .8, .9].map((q) => Math.floor(quantile(vals, q) * 2) / 2))].sort((a, b) => a - b);
+  return ts.map((t) => ({t, ...tstats(rows.filter((r) => r[m] != null && r[m] >= t - 1e-9))}));
+}
+
+function statTable(t, head, rows, onClick) {
+  t.tHead.innerHTML = ''; t.tBodies[0].innerHTML = '';
+  const hr = t.tHead.insertRow();
+  head.forEach(([h, cls]) => { const th = document.createElement('th'); th.textContent = h; th.style.cursor = 'default'; if (cls) th.className = cls; hr.append(th); });
   for (const r of rows) {
-    const all = r.edge_size === 'All', row = t.tBodies[0].insertRow();
-    row.style.cursor = 'default';
-    if (all) row.style.borderTop = '2px solid var(--border)';
-    const cells = [all ? r.signal : '', all ? 'All picks' : r.edge_size, r.bets, r.record, pct(r.win_pct),
-                   r.plus_minus == null ? '–' : '±' + pct(r.plus_minus), sgn(r.units, f1), r.roi == null ? '–' : sgn(100 * r.roi, f1) + '%'];
-    cells.forEach((v, i) => {
+    const row = t.tBodies[0].insertRow();
+    if (onClick && r.click) { row.onclick = r.click; row.title = 'Click to add to the filter'; } else row.style.cursor = 'default';
+    r.cells.forEach((v, i) => {
       const td = row.insertCell(); td.textContent = v;
-      if (i < 2) td.className = 'l';
-      if (all && i < 2) td.style.fontWeight = '600';
-      if (!all && i === 1) td.style.paddingLeft = '20px';
-      if (!all && i > 1) td.style.color = 'var(--text-2)';
-      if (i === 4 && r.win_pct != null) td.classList.add(r.win_pct > BE ? 'pos' : 'negv');
-      if (i === 6 && Math.abs(r.units) >= 0.05) td.classList.add(r.units > 0 ? 'pos' : 'negv');
+      if (head[i][1]) td.className = head[i][1];
+      if (r.pctAt === i && r.pct != null) td.classList.add(r.pct > BE ? 'pos' : 'negv');
+      if (r.unitsAt === i && Math.abs(r.units) >= 0.05) td.classList.add(r.units > 0 ? 'pos' : 'negv');
+      if (i === 0 && r.bold) td.style.fontWeight = '600';
     });
   }
 }
+
+function renderWork() {
+  const all = DATA.graded || [];
+  if (!all.length) {
+    $('workcard').querySelectorAll('.controls, h3, .tablewrap').forEach((e) => { e.style.display = 'none'; });
+    $('worksub').textContent = 'No graded picks yet. Picks are saved each time you run `cbbsq report`, and graded once the games are final.';
+    return;
+  }
+  const target = (+$('tgt').value || 55) / 100, minBets = Math.max(1, +$('tminb').value || 50);
+  const f = activeFilter(), rows = all.filter((p) => passes(p, f)), hasF = Object.keys(f).length > 0;
+  const tile = (k, v) => { const d = document.createElement('div'); d.className = 'tile'; const a = document.createElement('div'); a.className = 'v'; a.textContent = v; const b = document.createElement('div'); b.className = 'k'; b.textContent = k; d.append(a, b); return d; };
+  const s = tstats(rows);
+  $('worktiles').replaceChildren(
+    tile(hasF ? 'Bets passing the filter' : 'Bets graded', `${s.bets}${hasF ? ' of ' + all.length : ''}`),
+    tile('Record', s.record), tile('Win %', s.pct == null ? '–' : `${pctTxt(s.pct)} ± ${pctTxt(s.pm)}`),
+    tile('Units at −110', sgn(s.units, f1)));
+  $('findtitle').textContent = `Lowest threshold that wins ${(target * 100).toFixed(1).replace(/\.0$/, '')}% over at least ${minBets} bets` + (hasF ? ' (within the filter)' : '');
+  const H = [['Number', 'l'], ['Bet when', 'l'], ['Bets'], ['Record'], ['Win %'], ['±'], ['Units']];
+  statTable($('find'), H, MET.map(([m, name]) => {
+    const hit = thresholdFor(rows, m, target, minBets);
+    if (!hit) return {cells: [name, 'not reached', '–', '–', '–', '–', '–'], bold: true};
+    return {cells: [name, hit.any ? 'any value' : `≥ ${hit.t}`, hit.bets, hit.record, pctTxt(hit.pct), '±' + pctTxt(hit.pm), sgn(hit.units, f1)],
+            pct: hit.pct, pctAt: 4, units: hit.units, unitsAt: 6, bold: true,
+            click: hit.any ? null : () => { $('f_' + m).value = hit.t; onFilter(); }};
+  }), true);
+  const m = $('lmetric').value || 'luck_edge';
+  const L = [['Bet when', 'l'], ['Bets'], ['Record'], ['Win %'], ['±'], ['Units'], ['ROI']];
+  statTable($('ladder'), L, ladderRows(rows, m).map((r) => ({
+    cells: [`≥ ${r.t}`, r.bets, r.record, pctTxt(r.pct), '±' + pctTxt(r.pm), sgn(r.units, f1), r.roi == null ? '–' : sgn(100 * r.roi, f1) + '%'],
+    pct: r.pct, pctAt: 3, units: r.units, unitsAt: 5})));
+}
+
+function onFilter() {
+  for (const [m] of MET) store('cbbsq_f_' + m, $('f_' + m).value === '' ? null : $('f_' + m).value);
+  renderWork(); renderSpots();
+}
+
+for (const [m, name] of MET) {
+  const o = document.createElement('option'); o.value = m; o.textContent = name; $('lmetric').append(o);
+  const saved = load('cbbsq_f_' + m); if (saved != null) $('f_' + m).value = saved;
+  $('f_' + m).addEventListener('input', onFilter);
+}
+for (const id of ['tgt', 'tminb']) { const v = load('cbbsq_' + id); if (v != null) $(id).value = v; $(id).addEventListener('input', () => { store('cbbsq_' + id, $(id).value); renderWork(); }); }
+$('lmetric').addEventListener('input', renderWork);
+$('fclear').onclick = () => { for (const [m] of MET) $('f_' + m).value = ''; onFilter(); };
 
 renderSpots();
 renderWork();

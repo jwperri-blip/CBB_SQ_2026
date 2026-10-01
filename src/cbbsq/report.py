@@ -31,7 +31,7 @@ def _records(df: pd.DataFrame, digits: int = 4) -> list[dict]:
 
 def build_payload(tg: pd.DataFrame, *, min_games: int = 3, trend_window: int = 5,
                   spots: pd.DataFrame | None = None, spots_date: str | None = None,
-                  scorecard: pd.DataFrame | None = None) -> dict:
+                  graded: pd.DataFrame | None = None) -> dict:
     summaries = {}
     for key, last_n in (("all", None), ("last10", 10), ("last5", 5)):
         s = analysis.team_summary(tg, last_n=last_n, min_games=1)
@@ -56,7 +56,9 @@ def build_payload(tg: pd.DataFrame, *, min_games: int = 3, trend_window: int = 5
         "logs": logs,
         "spots_date": spots_date,
         "spots": _records(spots, digits=2) if spots is not None and not spots.empty else [],
-        "scorecard": _records(scorecard) if scorecard is not None and not scorecard.empty else [],
+        # Graded picks with their numbers; the dashboard finds thresholds from these in the browser.
+        "graded": _records(graded[["pick_date", "luck_edge", "opp_edge", "last5_edge", "sq_edge", "result", "units"]])
+        if graded is not None and not graded.empty else [],
     }
 
 

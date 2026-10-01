@@ -4,8 +4,8 @@
 * ``snapshots``   - append-only log of every scrape of every game (tracks live games too)
 * ``scrape_runs`` - one row per date scraped, for auditing coverage and failures
 * ``team_games``  - view with one row per team per game, from that team's perspective
-* ``picks``       - each signal's pick for each game, saved before tip and graded once the game is final
-* ``pick_runs``   - when picks were last computed for each date
+* ``spot_picks``  - the regression spots pick for each game with its numbers, graded once the game is final
+* ``spot_pick_runs`` - when picks were last computed for each date
 """
 
 from __future__ import annotations
@@ -68,24 +68,28 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     message TEXT
 );
 
-CREATE TABLE IF NOT EXISTS picks (
-    game_id TEXT NOT NULL,
-    strategy TEXT NOT NULL,
+DROP TABLE IF EXISTS picks;       -- replaced by spot_picks (both are rebuilt from games)
+DROP TABLE IF EXISTS pick_runs;
+
+CREATE TABLE IF NOT EXISTS spot_picks (
+    game_id TEXT PRIMARY KEY,
     pick_date TEXT NOT NULL,
-    pick TEXT NOT NULL,        -- team name for spread picks, 'Over' / 'Under' for totals
-    line REAL NOT NULL,        -- that team's spread, or the total
-    edge REAL NOT NULL,        -- signal strength (luck per 100 possessions, or points vs the line)
+    pick TEXT NOT NULL,        -- the team to bet: the less lucky one
+    line REAL NOT NULL,        -- that team's pre-game spread
+    luck_edge REAL,            -- how much luckier the other team has been (per 100 possessions)
+    opp_edge REAL,             -- the part of it from opponents missing good shots
+    last5_edge REAL,           -- the same edge over the last 5 games
+    sq_edge REAL,              -- points ShotQuality's pregame projection likes this bet by against the line
     source TEXT NOT NULL,      -- 'saved': computed on or before game day; 'backfill': computed later
     saved_at TEXT NOT NULL,
     result TEXT,               -- W / L / P, V for postponed or canceled; NULL until graded
-    cover REAL,                -- how many points the pick beat the line by (negative = lost by)
+    cover REAL,                -- points the bet beat the line by (negative = lost by)
     units REAL,                -- +0.909 a win at -110, -1 a loss, 0 a push
-    graded_at TEXT,
-    PRIMARY KEY (game_id, strategy)
+    graded_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_picks_date ON picks(pick_date);
+CREATE INDEX IF NOT EXISTS idx_spot_picks_date ON spot_picks(pick_date);
 
-CREATE TABLE IF NOT EXISTS pick_runs (
+CREATE TABLE IF NOT EXISTS spot_pick_runs (
     pick_date TEXT PRIMARY KEY,
     computed_at TEXT NOT NULL
 );

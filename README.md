@@ -94,8 +94,7 @@ cbbsq team "Penn"                     # game log plus 5-game rolling SQ trends (
 cbbsq trending                        # heating up: last 5 vs season   (--cooling for drops)
 cbbsq luck                            # results beating their shot quality (--unlucky for the reverse)
 cbbsq spots                           # today's games: which side luck says to bet (--date, --details)
-cbbsq picks --date 2026-01-12         # every signal's picks for a day, with results once graded
-cbbsq grade                           # what's working: each signal's record, win %, units and ROI
+cbbsq grade                           # which luck edge / last 5 / SQ edge thresholds have won (--target 55)
 cbbsq report                          # reports/dashboard.html, an interactive dashboard
 cbbsq export                          # CSVs for Excel / Google Sheets in data/exports/
 ```
@@ -112,23 +111,24 @@ Teams that have been lucky tend to come back to earth. `cbbsq spots` (and the ta
 | Luck edge | How many more points per 100 possessions the team you bet against has gained from luck this season. Bigger = stronger spot |
 | From opp. misses | How much of that edge comes from opponents missing good shots, which is mostly chance. Positive is better |
 | Last 5 | The same edge over the last 5 games. Positive means recent games agree |
+| SQ edge | How many points ShotQuality's pregame projection likes the same bet by against the line |
 
-Click a game on the dashboard (or add `--details` in the terminal) for each team's numbers. Only games before the date are used, so a past date shows what you would have seen that morning. Teams with fewer than 5 earlier games get no pick. This is a screen, not a backtested model.
+Click a game on the dashboard (or add `--details` in the terminal) for each team's numbers. Only games before the date are used, so a past date shows what you would have seen that morning. Teams with fewer than 5 earlier games get no pick. See the next section for how each number has done.
 
-### Saving and grading picks (what's working)
+### Grading the picks and finding thresholds
 
-Every time you run `cbbsq spots` or `cbbsq report`, each signal's pick for every game is saved to the `picks` table with the line and edge at that moment. Once a game is final, the pick is graded against that line at −110 (win +0.91 units, loss −1, push 0; postponed games are voided). The first run also fills in every past date already in the database, using only the games before each date, so last season is graded straight away. Picks saved on game day are marked `saved` and filled-in ones `backfill`; `cbbsq grade --saved-only` scores only the first kind.
+Every time you run `cbbsq spots` or `cbbsq report`, each game's Bet from the regression spots table is saved (the `spot_picks` table) with its line and four numbers: **Luck edge**, **From opp. misses**, **Last 5** and **SQ edge** (how many points ShotQuality's pregame projection likes the same bet by against the line; negative means it prefers the other side). Once the game is final the pick is graded against that line at −110 (win +0.91 units, loss −1, push 0; postponed games are voided). The first run also fills in every past date already in the database, using only the games before each date, so last season is graded straight away. Picks saved on game day are marked `saved`, filled-in ones `backfill` (`--saved-only` scores only the first kind).
 
-| Signal | Bets on |
-|---|---|
-| Fade luck (season) | The less lucky team this season (the regression spots pick) |
-| Fade opponents' misses | The team whose opponents have shot less luckily against it |
-| Fade luck (last 5) | The less lucky team over the last 5 games |
-| All three luck signals agree | The season pick, only when the other two point the same way |
-| SQ projection vs spread | The side ShotQuality's pregame SQ projection favors against the spread |
-| SQ projection vs total | Over or under, from the same projection |
+`cbbsq grade` answers "how big does each number need to be to win X%?":
 
-The SQ projection is pregame SQ PPP × expected possessions (each team's average so far), scaled to real scoring and home edge using that season's earlier games. `cbbsq grade` and the dashboard's **What's working** card show each signal's record, win %, a ±95% range, units and ROI, overall and split into thirds by edge size. A signal that works should win more as its edge grows, and its range should clear the 52.4% break-even before you trust it.
+```bash
+cbbsq grade                               # lowest threshold per number that wins 55% over 50+ bets, plus a win % ladder
+cbbsq grade --target 57 --min-bets 100    # a different target
+cbbsq grade --min-luck 4 --min-last5 0    # combine: only picks with luck edge >= 4 and last 5 >= 0
+cbbsq grade --metric sq_edge --season 2026
+```
+
+The dashboard's **Find your threshold** card does the same interactively: set a target win %, click a number's row to add it to the filter, stack filters, and the spots table ticks today's games that pass. The ± next to each win % is its 95% range. A threshold found by looking back at results flatters itself, so trust it once the low end of the range clears 52.4%, and check that it holds on new games or the next season.
 
 Daily routine: `cbbsq collect` (yesterday's final scores), `cbbsq collect --date today` (today's games and lines), then `cbbsq report`, which grades yesterday's picks and saves today's.
 
