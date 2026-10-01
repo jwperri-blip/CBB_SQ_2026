@@ -53,8 +53,14 @@ def team_rows(g):
         sq, osq = g[f"{side}_sq_score"], g[f"{opp}_sq_score"]
         ppp, oppp = g[f"{side}_ppp"], g[f"{opp}_ppp"]
         sqppp, osqppp = g[f"{side}_sq_ppp"], g[f"{opp}_sq_ppp"]
-        poss = pts / ppp if ppp else (sq / sqppp if sqppp else None)
-        oposs = opts / oppp if oppp else (osq / osqppp if osqppp else None)
+        def est(points, rate, sq_points, sq_rate):
+            by_score = points / rate if rate else None
+            by_sq = sq_points / sq_rate if sq_rate else None
+            if by_score is None or (by_sq is not None and abs(by_score - by_sq) / by_sq > 0.25):
+                return by_sq  # missing, or a misread value on the card
+            return by_score
+        poss = est(pts, ppp, sq, sqppp)
+        oposs = est(opts, oppp, osq, osqppp)
         out.append(dict(team=g[f"{side}_team"], side=side, date=g["game_date"], game_id=g["game_id"],
                         pts=pts, opts=opts, sq=sq, osq=osq, poss=poss, oposs=oposs,
                         pre=g[f"{side}_pregame_sq_ppp"], opre=g[f"{opp}_pregame_sq_ppp"]))

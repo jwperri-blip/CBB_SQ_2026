@@ -50,8 +50,12 @@ def add_derived(df: pd.DataFrame) -> pd.DataFrame:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     def possessions(pts, ppp, sq_pts, sq_ppp):
+        """Points / PPP, or SQ points / SQ PPP when that's missing or the two disagree by more than 25%
+        (a misread value on the card: both count roughly the same possessions)."""
         est = pts / ppp.where(ppp > 0)
-        return est.fillna(sq_pts / sq_ppp.where(sq_ppp > 0))
+        sq_est = sq_pts / sq_ppp.where(sq_ppp > 0)
+        misread = ((est - sq_est).abs() / sq_est > 0.25).fillna(False)
+        return est.where(~misread, sq_est).fillna(sq_est)
 
     df["poss"] = possessions(df["pts"], df["ppp"], df["sq_pts"], df["sq_ppp"])
     df["opp_poss"] = possessions(df["opp_pts"], df["opp_ppp"], df["opp_sq_pts"], df["opp_sq_ppp"])

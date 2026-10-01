@@ -159,10 +159,24 @@ def connect(path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+# ShotQuality's "Pregame SQ" is each team's rating at the time the page is viewed. Once a value has been
+# captured before tip-off, a later scrape (the next morning's, after the game) must not replace it with a
+# rating that already includes the game's result.
+PREGAME_FIELDS = {"away_pregame_sq_ppp", "home_pregame_sq_ppp"}
+
+
+def _update_expr(c: str) -> str:
+    if c in PREGAME_FIELDS:
+        return (f"{c} = CASE WHEN excluded.status = 'Scheduled' OR games.{c} IS NULL "
+                f"THEN COALESCE(excluded.{c}, games.{c}) ELSE games.{c} END")
+    return f"{c} = COALESCE(excluded.{c}, games.{c})"
+
+
 def upsert_games(conn: sqlite3.Connection, records: Iterable[dict], scraped_at: str | None = None) -> int:
     """Store scraped records. Every record is logged to ``snapshots``; ``games``
     keeps the latest state, except that a Final game is never downgraded by a
-    later non-final scrape and empty values never erase known ones."""
+    later non-final scrape, empty values never erase known ones, and pregame SQ
+    values captured before tip-off are kept (see PREGAME_FIELDS)."""
     scraped_at = scraped_at or utcnow()
     saved = 0
     for rec in records:
@@ -175,9 +189,7 @@ def upsert_games(conn: sqlite3.Connection, records: Iterable[dict], scraped_at: 
             continue
         cols = GAME_FIELDS + ["first_seen_at", "updated_at"]
         values = [rec.get(f) for f in GAME_FIELDS] + [scraped_at, scraped_at]
-        updates = ", ".join(
-            f"{c} = COALESCE(excluded.{c}, games.{c})" for c in GAME_FIELDS if c != "game_id"
-        )
+        updates = ", ".join(_update_expr(c) for c in GAME_FIELDS if c != "game_id")
         conn.execute(
             f"INSERT INTO games ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))}) "
             f"ON CONFLICT(game_id) DO UPDATE SET {updates}, updated_at = excluded.updated_at",

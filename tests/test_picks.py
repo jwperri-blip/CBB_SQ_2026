@@ -197,7 +197,11 @@ def test_total_pick_direction_numbers_and_grading(conn):
 
 def test_total_over_and_push(conn):
     slate, today = seed(conn)
-    conn.execute("UPDATE games SET home_score = home_score - 30 WHERE home_team = 'Hot Owls' AND status = 'Final'")
+    db.upsert_games(conn, [game(date(2026, 1, 1) + timedelta(days=i % 9), f"Neutral A{i}", f"Neutral B{i}",
+                                a=(68, 68.0, 1.0, 1.0), h=(70, 70.0, 1.03, 1.03)) for i in range(60)])  # a neutral league
+    # Hot Owls' home games now score 30 under their shots. A consistent card: the PPP drops with the score.
+    conn.execute("UPDATE games SET home_score = home_score - 30, home_ppp = round((home_score - 30) * home_ppp / home_score, 2) "
+                 "WHERE home_team = 'Hot Owls' AND status = 'Final'")
     conn.commit()
     spot = analysis.spots_for_date(conn, slate.isoformat(), market="total").iloc[0]
     assert spot.back == "Over" and spot.combined < 0

@@ -261,3 +261,29 @@ def test_dashboard_spots_table_sorts_by_any_column(conn, tmp_path, chromium_ok):
         team = page.locator("#tname").inner_text()
         assert team.startswith("Team ") and column("Bet")[0].startswith(team)
         assert not errors
+
+
+def test_possessions_fall_back_to_sq_when_a_value_is_misread(conn):
+    d = date(2026, 1, 10)
+    ok = game(d, "A Owls", "B Hawks", a=(70, 68.0, 1.0, 0.97), h=(75, 71.0, 1.07, 1.01))
+    bad = game(d, "C Owls", "D Hawks", a=(70, 68.0, 1.6, 1.0), h=(75, 69.0, 1.07, 1.01))  # away PPP misread
+    db.upsert_games(conn, [ok, bad])
+    tg = analysis.load_team_games(conn).set_index("team")
+    assert tg.loc["A Owls", "poss"] == pytest.approx(70 / 1.0)  # normal: from the score
+    assert tg.loc["C Owls", "poss"] == pytest.approx(68.0 / 1.0)  # 70 / 1.6 = 44 disagrees: SQ's 68 instead
+    assert tg.loc["D Hawks", "opp_poss"] == pytest.approx(68.0)
+
+
+def test_pregame_values_captured_before_tip_are_kept(conn):
+    d = date(2026, 11, 10)
+    morning = game(d, "A Owls", "B Hawks", status="Scheduled", a=(None,) * 4, h=(None,) * 4, pre=(1.02, 1.08))
+    evening = dict(morning, away_pregame_sq_ppp=1.03)  # still before tip: a refreshed rating is fine
+    db.upsert_games(conn, [morning])
+    db.upsert_games(conn, [evening])
+    after = game(d, "A Owls", "B Hawks", pre=(1.10, 1.01))  # next morning, Final: the site shows today's ratings
+    db.upsert_games(conn, [after])
+    row = conn.execute("SELECT status, away_score, away_pregame_sq_ppp, home_pregame_sq_ppp FROM games").fetchone()
+    assert tuple(row) == ("Final", 70, 1.03, 1.08)  # result stored, pregame kept from before tip
+    # A game first seen after it was played (backfill) takes whatever the page shows.
+    db.upsert_games(conn, [game(d, "C Owls", "D Hawks", pre=(1.0, 1.1))])
+    assert conn.execute("SELECT away_pregame_sq_ppp FROM games WHERE away_team = 'C Owls'").fetchone()[0] == 1.0
