@@ -74,3 +74,41 @@ def test_dashboard_does_not_count_a_side_without_a_line_as_a_bet(conn, tmp_path,
         assert "2 games · 1 picks" in today  # the side without a line isn't a bet
         page.goto(pages["total"].resolve().as_uri() + "#today")
         assert any(b.endswith("(no total yet)") for b in page.locator("#spots tbody tr td:nth-child(2)").all_inner_texts())
+
+
+def test_audit_finds_dates_with_swapped_pregame_numbers(conn):
+    import random
+
+    rng = random.Random(4)
+    recs = []
+    for day in range(6):
+        d = date(2026, 1, 1) + timedelta(days=day)
+        for i in range(8):
+            a_pre, h_pre = round(rng.uniform(0.95, 1.05), 3), round(rng.uniform(1.06, 1.16), 3)  # home better...
+            if day == 3:
+                a_pre, h_pre = h_pre, a_pre  # ...except on one date, where the two numbers are swapped
+            r = game(d, f"Away {day}-{i}", f"Home {day}-{i}", pre=(a_pre, h_pre))
+            r["home_spread_pre"] = -round(rng.uniform(4, 12), 1)  # and the line agrees: home favored
+            recs.append(r)
+    db.upsert_games(conn, recs)
+    f = by_title(audit.run(conn))["Pregame SQ on the right team"]
+    assert f.level == "WARN" and len(f.examples) == 1 and f.examples[0].startswith("2026-01-04")
+
+
+def test_game_detail_shows_scrapes_and_card_text(conn, tmp_path):
+    import gzip
+    import json
+
+    d = date(2026, 1, 5)
+    live = game(d, "Oregon Ducks", "Rutgers Scarlet Knights", status="Live", a=(30, 28.0, 1.0, 0.93))
+    db.upsert_games(conn, [live])
+    db.upsert_games(conn, [game(d, "Oregon Ducks", "Rutgers Scarlet Knights", a=(70, 66.0, 1.0, 0.94))])
+    raw = tmp_path / "raw" / d.isoformat()
+    raw.mkdir(parents=True)
+    with gzip.open(raw / "20260106T120000Z.json.gz", "wt") as fh:
+        json.dump({"date": d.isoformat(), "cards": [{"text": "Oregon Ducks 70 Rutgers Scarlet Knights 75 SQ Score ...",
+                                                     "rows": {"score": ["70", "75"]}}]}, fh)
+    out = "\n".join(audit.game_detail(conn, "oregon", tmp_path / "raw"))
+    assert "2 scrape(s)" in out and " Live:" in out and " Final:" in out
+    assert "card text in 20260106T120000Z.json.gz: Oregon Ducks 70" in out
+    assert audit.game_detail(conn, "nobody", tmp_path / "raw") == ["No game matches 'nobody'."]

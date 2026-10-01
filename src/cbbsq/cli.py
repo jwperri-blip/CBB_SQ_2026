@@ -462,9 +462,13 @@ def cmd_serve(settings: Settings, args) -> None:
 
 
 def cmd_audit(settings: Settings, args) -> None:
-    from .audit import run
+    from .audit import game_detail, run
 
     conn = db.connect(settings.db_path)
+    if args.game:
+        print("\n".join(game_detail(conn, args.game, settings.raw_dir)))
+        conn.close()
+        return
     findings = run(conn)
     conn.close()
     for f in findings:
@@ -630,6 +634,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("audit", help="check the stored data for anything that would make a number wrong")
+    sp.add_argument("--game", help="show everything stored for games matching this text (team name or game id)")
     sp.set_defaults(func=cmd_audit)
 
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")

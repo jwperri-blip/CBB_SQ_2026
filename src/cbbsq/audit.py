@@ -60,10 +60,16 @@ def run(conn: sqlite3.Connection) -> list[Finding]:
         p2 = d[f"{side}_sq_score"] / d[f"{side}_sq_ppp"]
         bad.append((p1 - p2).abs() / p1 > 0.06)
     shifted = d[bad[0] | bad[1]] if len(d) else d
+    examples = _ex(shifted, lambda r: f"{label(r)}: possessions from score {r.away_score / r.away_ppp:.1f} / "
+                                      f"{r.home_score / r.home_ppp:.1f}, from SQ {r.away_sq_score / r.away_sq_ppp:.1f} / "
+                                      f"{r.home_sq_score / r.home_sq_ppp:.1f} (away / home)")
+    if len(shifted):
+        rate = (shifted.groupby("game_date").size() / d.groupby("game_date").size()).dropna().sort_values(ascending=False)
+        examples.append("most affected dates: " + ", ".join(f"{k} {v:.0%}" for k, v in rate.head(6).items()))
     out.append(Finding("WARN" if len(shifted) else "OK", "Card values consistent",
                        f"{len(shifted)} of {len(d)} games where score / PPP and SQ score / SQ PPP disagree on "
-                       f"possessions by more than 6% (a sign of numbers read into the wrong row).",
-                       _ex(shifted, label)))
+                       f"possessions by more than 6% (numbers read into the wrong row, or live and final values "
+                       f"mixed). `cbbsq audit --game <team>` shows one game's scrapes and card text.", examples))
 
     # 4. Plausible ranges
     odd = final[(final[["away_score", "home_score"]] < 25).any(axis=1) | (final[["away_score", "home_score"]] > 150).any(axis=1)
@@ -100,15 +106,35 @@ def run(conn: sqlite3.Connection) -> list[Finding]:
                                                   f"(card: '{r.line_text or ''}'), pregame SQ PPP {r.away_pregame_sq_ppp:.2f} "
                                                   f"away / {r.home_pregame_sq_ppp:.2f} home")))
 
+    # 6b. Pregame SQ numbers on the right team, date by date: ShotQuality's projection and the betting line
+    # should usually favor the same side. A date where they mostly disagree suggests the two pregame
+    # numbers were swapped between the teams on that date's cards.
+    s3 = s[s["home_spread_pre"].abs() >= 3] if len(s) else s
+    if len(s3) >= 20:
+        agree = np.sign(s3["home_pregame_sq_ppp"] - s3["away_pregame_sq_ppp"]) == np.sign(-s3["home_spread_pre"])
+        by_date = agree.groupby(s3["game_date"]).agg(["mean", "size"])
+        bad_dates = by_date[(by_date["size"] >= 4) & (by_date["mean"] < 0.5)].sort_index()
+        n_bad = int(s3["game_date"].isin(bad_dates.index).sum())
+        out.append(Finding("WARN" if len(bad_dates) else "OK", "Pregame SQ on the right team",
+                           f"Overall the pregame projection and the line favor the same team in {agree.mean():.0%} of "
+                           f"{len(s3)} games with a line of 3+. {len(bad_dates)} date(s) ({n_bad} games) where they "
+                           f"mostly disagree, which suggests the pregame numbers were swapped between the teams there.",
+                           [f"{k}: agree in {v['mean']:.0%} of {int(v['size'])} games" for k, v in bad_dates.head(8).iterrows()]))
+
     # 7. Team names: one team stored under two spellings splits its history
     names = sorted(set(g["away_team"]) | set(g["home_team"]))
-    key = lambda n: re.sub(r"[^a-z0-9]", "", n.lower().replace("state", "st").replace("saint", "st"))  # noqa: E731
+    key = lambda n: re.sub(r"[^a-z0-9]", "", n.split(",")[0].lower().replace("state", "st").replace("saint", "st"))  # noqa: E731
     groups: dict[str, list[str]] = {}
     for n in names:
         groups.setdefault(key(n), []).append(n)
     dupes = [v for v in groups.values() if len(v) > 1]
     out.append(Finding("WARN" if dupes else "OK", "One name per team",
                        f"{len(dupes)} team(s) appear under more than one spelling.", [" / ".join(v) for v in dupes[:5]]))
+    games_per = pd.concat([g["away_team"], g["home_team"]]).value_counts()
+    odd_names = [n for n in names if re.search(r"[,(\[]", n)]
+    out.append(Finding("WARN" if odd_names else "OK", "Team names read cleanly",
+                       f"{len(odd_names)} team name(s) contain a comma or bracket (extra text read with the name).",
+                       [f"{n} ({games_per.get(n, 0)} games)" for n in odd_names[:8]]))
 
     # 8. SQ scoring level (informational): how far real scoring runs above SQ points league-wide
     tg = analysis.load_team_games(conn)
@@ -137,3 +163,44 @@ def run(conn: sqlite3.Connection) -> list[Finding]:
                                    f"Every pick together has won {pct:.1%} of {wins + losses} decided bets. Far from "
                                    f"50% either way over a full season would be surprising and worth a look."))
     return out
+
+
+def game_detail(conn: sqlite3.Connection, query: str, raw_dir) -> list[str]:
+    """Everything stored about the games matching ``query`` (part of a team name or game id): the stored
+    row, every scrape of it, and the card text the site showed in the latest raw capture of that date."""
+    import gzip
+    import json
+    from pathlib import Path
+
+    q = f"%{query.lower()}%"
+    rows = conn.execute("SELECT * FROM games WHERE lower(game_id) LIKE ? OR lower(away_team) LIKE ? OR lower(home_team) LIKE ? "
+                        "ORDER BY game_date LIMIT 5", (q, q, q)).fetchall()
+    lines: list[str] = []
+    fields = ["status", "away_score", "home_score", "away_sq_score", "home_sq_score", "away_ppp", "home_ppp",
+              "away_sq_ppp", "home_sq_ppp", "away_pregame_sq_ppp", "home_pregame_sq_ppp", "line_text", "ou_text"]
+    for r in rows:
+        r = dict(r)
+        lines.append(f"=== {r['game_date']} {r['away_team']} @ {r['home_team']}  ({r['game_id']})")
+        lines.append("stored: " + ", ".join(f"{f}={r[f]}" for f in fields))
+        snaps = conn.execute("SELECT scraped_at, status, data FROM snapshots WHERE game_id = ? ORDER BY scraped_at",
+                             (r["game_id"],)).fetchall()
+        lines.append(f"{len(snaps)} scrape(s):")
+        for sc in snaps:
+            d = json.loads(sc[2])
+            lines.append(f"  {sc[0]} {sc[1]}: score {d.get('away_score')}-{d.get('home_score')}, SQ {d.get('away_sq_score')}-"
+                         f"{d.get('home_sq_score')}, PPP {d.get('away_ppp')}/{d.get('home_ppp')}, SQ PPP "
+                         f"{d.get('away_sq_ppp')}/{d.get('home_sq_ppp')}, pregame {d.get('away_pregame_sq_ppp')}/"
+                         f"{d.get('home_pregame_sq_ppp')}")
+        files = sorted(Path(raw_dir).glob(f"{r['game_date']}/*.json.gz"))
+        for path in reversed(files):
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                cards = json.load(fh).get("cards", [])
+            hit = [c for c in cards if r["away_team"].split()[0] in (c.get("text") or "") and
+                   r["home_team"].split()[0] in (c.get("text") or "")]
+            if hit:
+                lines.append(f"card text in {path.name}: {hit[0].get('text')}")
+                lines.append(f"rows read: {hit[0].get('rows')}")
+                break
+        else:
+            lines.append("no raw capture found for this date")
+    return lines or [f"No game matches {query!r}."]
