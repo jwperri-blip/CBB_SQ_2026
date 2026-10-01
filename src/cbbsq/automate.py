@@ -28,7 +28,7 @@ from .report import write_pages
 
 DAILY_LABEL = "com.cbbsq.daily"
 SERVE_LABEL = "com.cbbsq.serve"
-DEFAULT_TIMES = ("10:00", "17:00")
+DEFAULT_TIMES = ("08:00", "17:00")  # morning: results and the day's first lines; evening: refreshed lines
 
 
 def notify(title: str, message: str) -> None:

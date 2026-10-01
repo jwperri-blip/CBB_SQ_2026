@@ -440,7 +440,8 @@ def cmd_schedule(settings: Settings, args) -> None:
     except (RuntimeError, ValueError) as exc:
         sys.exit(f"error: {exc}")
     print(f"`cbbsq daily` will run every day at {', '.join(times)} (a run missed while the Mac slept happens "
-          f"when it wakes). It does nothing May-October. Log: data/daily.log")
+          f"when it wakes). It does nothing May-October. Log: data/daily.log\n"
+          f"To update right now (or again), run `cbbsq update`.")
     if args.serve:
         print("The web server now runs in the background; `cbbsq serve --info` shows its addresses and password.")
 
@@ -592,7 +593,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--totals", action="store_true", help="grade the over / under picks instead of spreads")
     sp.set_defaults(func=cmd_grade)
 
-    sp = sub.add_parser("daily", help="the daily routine: yesterday's finals, today's slate, both pages")
+    sp = sub.add_parser("daily", aliases=["update"],
+                        help="the daily routine (also `cbbsq update`): yesterday's finals, today's slate, both pages")
     sp.add_argument("--date", type=_date, help="treat this date as today (default today)")
     sp.add_argument("--out", default="reports/dashboard.html")
     sp.add_argument("--force", action="store_true", help="run even in the off-season (May-October)")
@@ -600,7 +602,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_daily)
 
     sp = sub.add_parser("schedule", help="run `cbbsq daily` automatically (macOS); --serve keeps the web server up")
-    sp.add_argument("--at", action="append", metavar="HH:MM", help="time to run (repeatable; default 10:00 and 17:00)")
+    sp.add_argument("--at", action="append", metavar="HH:MM", help="time to run (repeatable; default 08:00 and 17:00)")
     sp.add_argument("--serve", action="store_true", help="also keep `cbbsq serve` running in the background")
     sp.add_argument("--remove", action="store_true", help="remove the background jobs")
     sp.set_defaults(func=cmd_schedule)

@@ -75,22 +75,22 @@ cbbsq status                                    # coverage and recent runs
 
 ### Run it automatically every day
 
-`cbbsq daily` is the whole routine in one command: yesterday's final scores (which grades yesterday's picks), today's games and lines (which saves today's picks), then both pages. It does nothing from May to October, so it can be set up ahead of the season and simply starts working in November. If collecting fails (for example the ShotQuality login expired), it still rebuilds the pages from what is already stored and, on a Mac, shows a notification.
+`cbbsq daily` (or `cbbsq update`, the same command) is the whole routine, and you can run it yourself any time to update right away: yesterday's final scores (which grades yesterday's picks), today's games and lines (which saves today's picks), then both pages. It does nothing from May to October, so it can be set up ahead of the season and simply starts working in November. If collecting fails (for example the ShotQuality login expired), it still rebuilds the pages from what is already stored and, on a Mac, shows a notification.
 
 **macOS (recommended):**
 
 ```bash
-cbbsq schedule                      # runs `cbbsq daily` at 10:00 and 17:00 every day
+cbbsq schedule                      # runs `cbbsq daily` at 8:00 and 17:00 every day
 cbbsq schedule --at 9:30 --at 18:00 # other times
 cbbsq schedule --serve              # ...and keep the web server running too (see below)
 cbbsq schedule --remove             # undo
 ```
 
-This installs a LaunchAgent in `~/Library/LaunchAgents`. Unlike cron, launchd runs a job the Mac slept through as soon as it wakes. The 10:00 run picks up the results and the morning lines; the 17:00 run refreshes lines before the evening games. The output goes to `data/daily.log`.
+This installs a LaunchAgent in `~/Library/LaunchAgents`. Unlike cron, launchd runs a job the Mac slept through as soon as it wakes. The 8:00 run picks up last night's results and the first lines; the 17:00 run refreshes lines (some aren't posted by 8) before the evening games. The output goes to `data/daily.log`.
 
 Unattended runs need the saved login to stay valid. Put `SQ_EMAIL` / `SQ_PASSWORD` in `.env` so the scraper can log in again by itself; if your account uses Google sign-in, run `cbbsq login --headed` again whenever a notification says collecting failed.
 
-**Linux (cron):** `0 10,17 * * * cd /path/to/CBB_SQ_2026 && .venv/bin/cbbsq daily >> data/daily.log 2>&1`
+**Linux (cron):** `0 8,17 * * * cd /path/to/CBB_SQ_2026 && .venv/bin/cbbsq daily >> data/daily.log 2>&1`
 
 **Windows:** a Task Scheduler task that runs `C:\path\to\CBB_SQ_2026\.venv\Scripts\cbbsq.exe daily` with "Start in" set to the project folder.
 

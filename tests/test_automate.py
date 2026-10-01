@@ -115,3 +115,14 @@ def test_server_requires_the_password(tmp_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_default_schedule_and_update_alias(settings, tmp_path, monkeypatch, capsys):
+    assert automate.DEFAULT_TIMES[0] == "08:00"
+    env = tmp_path / ".env"
+    env.write_text(f"CBBSQ_DB={settings.db_path}\n")
+    monkeypatch.setenv("CBBSQ_DB", str(settings.db_path))  # restored after the test (.env loading sets it otherwise)
+    from cbbsq.cli import main
+
+    main(["--env", str(env), "update", "--date", "2026-07-01"])  # same command as `daily`
+    assert "off-season" in capsys.readouterr().out

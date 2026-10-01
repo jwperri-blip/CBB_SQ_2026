@@ -216,7 +216,7 @@ def test_total_picks_use_only_earlier_games(conn):
     assert p.pick == morning.back and p.luck_edge == pytest.approx(morning.gap)
 
 
-def test_report_writes_spreads_and_totals_pages(conn, tmp_path, chromium_ok):
+def test_report_writes_spreads_and_totals_pages(conn, tmp_path, chromium_ok, monkeypatch):
     from playwright.sync_api import sync_playwright
 
     from cbbsq.cli import main
@@ -229,6 +229,7 @@ def test_report_writes_spreads_and_totals_pages(conn, tmp_path, chromium_ok):
     env = tmp_path / "test.env"
     db_path = conn.execute("PRAGMA database_list").fetchone()[2]
     env.write_text(f"CBBSQ_DB={db_path}\n")
+    monkeypatch.setenv("CBBSQ_DB", db_path)  # an earlier test's .env must not win
     last = conn.execute("SELECT MAX(game_date) FROM games").fetchone()[0]
     out = tmp_path / "reports" / "dashboard.html"
     main(["--env", str(env), "report", "--out", str(out), "--spots-date", last])
