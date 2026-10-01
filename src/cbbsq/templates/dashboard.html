@@ -189,6 +189,7 @@
     <div class="controls">
       <label>Target win %<input id="tgt" type="number" min="50" max="80" step="0.5" value="55" style="width:90px"></label>
       <label>Min. bets<input id="tminb" type="number" min="1" step="5" value="50" style="width:90px"></label>
+      <label>History<select id="srcsel"><option value="all">All picks</option><option value="saved">Saved on game day</option></select></label>
       <span class="ctlsep"></span>
       <label>Luck edge ≥<input id="f_luck_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
       <label><span id="f_opp_label">From opp. misses</span> ≥<input id="f_opp_edge" type="number" step="0.5" placeholder="any" style="width:80px"></label>
@@ -664,6 +665,12 @@ const MET = [['luck_edge', 'Luck edge', 'gap'], ['opp_edge', OPP_LABEL, 'opp_gap
 const BE = 110 / 210;
 const pctTxt = (v) => v == null || isNaN(v) ? '–' : (100 * v).toFixed(1) + '%';
 
+// Graded picks, optionally only those saved on game day (filled-in history can contain hindsight).
+function gradedPicks() {
+  const all = DATA.graded || [];
+  return $('srcsel').value === 'saved' ? all.filter((p) => p.source === 'saved') : all;
+}
+
 function store(key, val) { try { if (val == null) localStorage.removeItem(key); else localStorage.setItem(key, val); } catch (e) {} }
 function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 
@@ -724,10 +731,18 @@ function statTable(t, head, rows, onClick) {
 }
 
 function renderWork() {
-  const all = DATA.graded || [];
-  if (!all.length) {
+  if (!(DATA.graded || []).length) {
     $('workcard').querySelectorAll('.controls, h3, .tablewrap').forEach((e) => { e.style.display = 'none'; });
     $('worksub').textContent = 'No graded picks yet. Picks are saved each time you run `cbbsq report`, and graded once the games are final.';
+    return;
+  }
+  const all = gradedPicks();
+  if (!all.length) {  // e.g. "Saved on game day" before any such pick has been graded
+    const msg = document.createElement('p'); msg.className = 'empty';
+    msg.textContent = 'No graded picks saved on game day yet. They build up from the first day `cbbsq update` runs during the season.';
+    $('worktiles').replaceChildren(msg);
+    for (const id of ['find', 'ladder']) { $(id).tHead.innerHTML = ''; $(id).tBodies[0].innerHTML = ''; }
+    $('ladderchart').innerHTML = '';
     return;
   }
   const target = (+$('tgt').value || 55) / 100, minBets = Math.max(1, +$('tminb').value || 50);
@@ -835,7 +850,7 @@ function renderSummary() {
 
   // Season to date
   const season = day ? seasonOf(day) : null;
-  const past = (DATA.graded || []).filter((p) => passes(p, f) && (!day || (p.pick_date < day && seasonOf(p.pick_date) === season)));
+  const past = gradedPicks().filter((p) => passes(p, f) && (!day || (p.pick_date < day && seasonOf(p.pick_date) === season)));
   const s = tstats(past);
   const seasonGroup = group(season ? `${season - 1}-${String(season).slice(2)} season to date` : 'Season to date',
     day ? `before ${day}` : '', [
@@ -886,7 +901,7 @@ for (const [m, name] of MET) {
   const saved = load(KP + 'f_' + m); if (saved != null) $('f_' + m).value = saved;
   $('f_' + m).addEventListener('input', onFilter);
 }
-for (const id of ['tgt', 'tminb']) { const v = load(KP + id); if (v != null) $(id).value = v; $(id).addEventListener('input', () => { store(KP + id, $(id).value); renderWork(); }); }
+for (const id of ['tgt', 'tminb', 'srcsel']) { const v = load(KP + id); if (v != null) $(id).value = v; $(id).addEventListener('input', () => { store(KP + id, $(id).value); renderWork(); renderSummary(); }); }
 $('lmetric').addEventListener('input', renderWork);
 $('fclear').onclick = () => { for (const [m] of MET) $('f_' + m).value = ''; onFilter(); };
 

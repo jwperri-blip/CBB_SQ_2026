@@ -28,16 +28,20 @@ def test_audit_flags_the_problems_it_is_for(conn):
     simulate_season(conn)
     d = date(2026, 3, 1)
     shifted = game(d, "Team 01", "Team 02", a=(70, 45.0, 1.0, 1.0))  # SQ score read from the wrong row
-    flipped = game(d, "Team 03", "Team 04", pre=(0.95, 1.12))  # home much better per SQ...
-    flipped["home_spread_pre"] = 10.0  # ...but the line makes home a 10-point underdog
+    weak = game(d, "Texas Southern Tigers", "Alcorn St. Braves", spread_team="TXS", spread=-4.5)  # letters in order only
+    weak["line_text"] = "Pre-Game TXS -4.5"
+    from cbbsq.parse import _home_spread
+
+    weak["home_spread_pre"] = _home_spread("TXS", -4.5, weak["away_team"], weak["home_team"])
     unresolved = game(d, "Team 05", "Team 06", spread_team="ZZZ", spread=-3.5)
     variant = game(d, "St. John's Red Storm", "St Johns Red Storm")
     missing = game(d, "Team 07", "Team 08")
     missing["home_sq_score"] = None
-    db.upsert_games(conn, [shifted, flipped, unresolved, variant, missing])
+    db.upsert_games(conn, [shifted, weak, unresolved, variant, missing])
     f = by_title(audit.run(conn))
-    assert f["Card values consistent"].level == "WARN" and "Team 01 @ Team 02" in f["Card values consistent"].examples[0]
-    assert f["Spread on the right team"].level == "WARN" and "Team 03 @ Team 04" in f["Spread on the right team"].examples[0]
+    rows = f["Card values read into the right rows"]
+    assert rows.level == "WARN" and len(rows.examples) == 1 and "Team 01 @ Team 02" in rows.examples[0]
+    assert f["Spreads matched confidently"].level == "WARN" and "Texas Southern" in f["Spreads matched confidently"].examples[0]
     assert f["Spreads tied to a team"].level == "WARN"
     assert f["One name per team"].level == "WARN" and "St. John's" in f["One name per team"].examples[0]
     assert f["Final games with missing numbers"].level == "WARN"
@@ -76,25 +80,6 @@ def test_dashboard_does_not_count_a_side_without_a_line_as_a_bet(conn, tmp_path,
         assert any(b.endswith("(no total yet)") for b in page.locator("#spots tbody tr td:nth-child(2)").all_inner_texts())
 
 
-def test_audit_finds_dates_with_swapped_pregame_numbers(conn):
-    import random
-
-    rng = random.Random(4)
-    recs = []
-    for day in range(6):
-        d = date(2026, 1, 1) + timedelta(days=day)
-        for i in range(8):
-            a_pre, h_pre = round(rng.uniform(0.95, 1.05), 3), round(rng.uniform(1.06, 1.16), 3)  # home better...
-            if day == 3:
-                a_pre, h_pre = h_pre, a_pre  # ...except on one date, where the two numbers are swapped
-            r = game(d, f"Away {day}-{i}", f"Home {day}-{i}", pre=(a_pre, h_pre))
-            r["home_spread_pre"] = -round(rng.uniform(4, 12), 1)  # and the line agrees: home favored
-            recs.append(r)
-    db.upsert_games(conn, recs)
-    f = by_title(audit.run(conn))["Pregame SQ on the right team"]
-    assert f.level == "WARN" and len(f.examples) == 1 and f.examples[0].startswith("2026-01-04")
-
-
 def test_game_detail_shows_scrapes_and_card_text(conn, tmp_path):
     import gzip
     import json
@@ -112,3 +97,34 @@ def test_game_detail_shows_scrapes_and_card_text(conn, tmp_path):
     assert "2 scrape(s)" in out and " Live:" in out and " Final:" in out
     assert "card text in 20260106T120000Z.json.gz: Oregon Ducks 70" in out
     assert audit.game_detail(conn, "nobody", tmp_path / "raw") == ["No game matches 'nobody'."]
+
+
+def test_audit_spots_end_of_season_ratings_filled_into_past_games(conn):
+    import random
+
+    rng = random.Random(9)
+    teams = [f"Team {i:02d}" for i in range(30)]
+    true = {t: rng.gauss(1.0, 0.05) for t in teams}
+    drift = {t: rng.gauss(0, 0.05) for t in teams}  # teams improve or decline over the season
+    games, d = [], date(2025, 11, 4)
+    for rnd in range(24):
+        order = teams[:]
+        rng.shuffle(order)
+        for i in range(0, 30, 2):
+            a, h = order[i], order[i + 1]
+            f = rnd / 23
+            a_sq = true[a] + drift[a] * f + rng.gauss(0, 0.05)
+            h_sq = true[h] + drift[h] * f + rng.gauss(0, 0.05)
+            games.append((d, a, h, a_sq, h_sq))
+        d += timedelta(days=4)
+    season_avg = {t: sum(x[3] for x in games if x[1] == t) / max(1, sum(1 for x in games if x[1] == t)) for t in teams}
+    for t in teams:  # average over both sides
+        vals = [x[3] for x in games if x[1] == t] + [x[4] for x in games if x[2] == t]
+        season_avg[t] = sum(vals) / len(vals)
+    # every past game carries the team's end-of-season value as "pregame"
+    db.upsert_games(conn, [game(gd, a, h, a=(70, a_sq * 68, round(a_sq, 2), round(a_sq, 3)),
+                                h=(70, h_sq * 68, round(h_sq, 2), round(h_sq, 3)),
+                                pre=(round(season_avg[a], 2), round(season_avg[h], 2)))
+                           for gd, a, h, a_sq, h_sq in games])
+    f = by_title(audit.run(conn))["Pregame SQ: game-day number or current rating?"]
+    assert f.level == "WARN" and "100% of 30 teams" in f.detail and "--saved-only" in f.detail

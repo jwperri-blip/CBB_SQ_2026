@@ -257,3 +257,34 @@ def test_report_writes_spreads_and_totals_pages(conn, tmp_path, chromium_ok, mon
         page.wait_for_url("**/dashboard.html#thresholds")
         assert page.input_value("#f_sq_edge") == ""
         assert not errors
+
+
+def test_dashboard_history_switch_uses_only_game_day_picks(conn, tmp_path, chromium_ok):
+    from playwright.sync_api import sync_playwright
+
+    from cbbsq.report import write_report
+
+    simulate_season(conn)
+    conn.execute("UPDATE games SET home_spread_pre = -2.5")
+    conn.commit()
+    picks.update(conn)  # everything is filled-in history ("backfill")
+    conn.execute("UPDATE spot_picks SET source = 'saved' WHERE pick_date >= (SELECT MAX(pick_date) FROM spot_picks WHERE "
+                 "pick_date < '2026-01-20')")  # pretend the last stretch was saved on game day
+    conn.commit()
+    g = picks.graded(picks.load_picks(conn))
+    saved = g[g["source"] == "saved"]
+    assert 0 < len(saved) < len(g)
+    out = write_report(analysis.load_team_games(conn), tmp_path / "d.html", graded=g)
+    with sync_playwright() as p:
+        page = p.chromium.launch().new_page()
+        page.goto(out.resolve().as_uri() + "#thresholds")
+        assert picks.stats(g)["record"] in page.locator("#worktiles").inner_text()
+        page.select_option("#srcsel", "saved")
+        assert picks.stats(saved)["record"] in page.locator("#worktiles").inner_text()
+        assert picks.stats(saved)["record"] in page.locator("#summary").inner_text()
+        conn.execute("UPDATE spot_picks SET source = 'backfill'")
+        conn.commit()
+        out2 = write_report(analysis.load_team_games(conn), tmp_path / "e.html", graded=picks.graded(picks.load_picks(conn)))
+        page.goto(out2.resolve().as_uri() + "#thresholds")  # the switch is remembered: no game-day picks at all
+        assert page.input_value("#srcsel") == "saved" and "No graded picks saved on game day" in page.locator("#worktiles").inner_text()
+        assert page.locator("#srcsel").is_visible()  # and it can still be switched back

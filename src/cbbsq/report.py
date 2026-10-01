@@ -60,7 +60,7 @@ def build_payload(tg: pd.DataFrame, *, min_games: int = 3, trend_window: int = 5
         "spots_date": spots_date,
         "spots": _records(spots, digits=2) if spots is not None and not spots.empty else [],
         # Graded picks with their numbers; the dashboard finds thresholds from these in the browser.
-        "graded": _records(graded[["pick_date", "luck_edge", "opp_edge", "last5_edge", "sq_edge", "result", "units"]])
+        "graded": _records(graded[["pick_date", "luck_edge", "opp_edge", "last5_edge", "sq_edge", "result", "units", "source"]])
         if graded is not None and not graded.empty else [],
     }
 

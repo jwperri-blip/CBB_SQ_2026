@@ -52,24 +52,28 @@ def run(conn: sqlite3.Connection) -> list[Finding]:
                        f"{len(missing)} final game(s) lack a score, SQ score or PPP (they drop out of every metric).",
                        _ex(missing, label)))
 
-    # 3. Card read correctly: score/PPP and SQ score/SQ PPP must describe the same possessions
+    # 3. Card read correctly. ShotQuality's SQ PPP isn't always over exactly the same possessions as the
+    # score's PPP, so small gaps between score / PPP and SQ score / SQ PPP are the site's own numbers
+    # (confirmed against the card text). A gap over 25% means a value went into the wrong row.
     d = final.dropna(subset=need + ["away_sq_ppp", "home_sq_ppp"])
-    bad = []
+    gaps = []
     for side in ("away", "home"):
         p1 = d[f"{side}_score"] / d[f"{side}_ppp"]
         p2 = d[f"{side}_sq_score"] / d[f"{side}_sq_ppp"]
-        bad.append((p1 - p2).abs() / p1 > 0.06)
-    shifted = d[bad[0] | bad[1]] if len(d) else d
-    examples = _ex(shifted, lambda r: f"{label(r)}: possessions from score {r.away_score / r.away_ppp:.1f} / "
-                                      f"{r.home_score / r.home_ppp:.1f}, from SQ {r.away_sq_score / r.away_sq_ppp:.1f} / "
-                                      f"{r.home_sq_score / r.home_sq_ppp:.1f} (away / home)")
-    if len(shifted):
-        rate = (shifted.groupby("game_date").size() / d.groupby("game_date").size()).dropna().sort_values(ascending=False)
-        examples.append("most affected dates: " + ", ".join(f"{k} {v:.0%}" for k, v in rate.head(6).items()))
-    out.append(Finding("WARN" if len(shifted) else "OK", "Card values consistent",
-                       f"{len(shifted)} of {len(d)} games where score / PPP and SQ score / SQ PPP disagree on "
-                       f"possessions by more than 6% (numbers read into the wrong row, or live and final values "
-                       f"mixed). `cbbsq audit --game <team>` shows one game's scrapes and card text.", examples))
+        gaps.append((p1 - p2).abs() / p1)
+    gap = pd.concat(gaps, axis=1).max(axis=1) if len(d) else pd.Series(dtype=float)
+    fmt = lambda r: (f"{label(r)}: possessions from score {r.away_score / r.away_ppp:.1f} / {r.home_score / r.home_ppp:.1f}, "  # noqa: E731
+                     f"from SQ {r.away_sq_score / r.away_sq_ppp:.1f} / {r.home_sq_score / r.home_sq_ppp:.1f} (away / home)")
+    misread = d[gap > 0.25]
+    out.append(Finding("WARN" if len(misread) else "OK", "Card values read into the right rows",
+                       f"{len(misread)} of {len(d)} games where score / PPP and SQ score / SQ PPP differ by more than "
+                       f"25% on possessions (a value read into the wrong row). `cbbsq audit --game <team>` shows the card.",
+                       _ex(misread, fmt)))
+    out.append(Finding("INFO", "SQ possessions vs scored possessions",
+                       f"In {int(((gap > 0.06) & (gap <= 0.25)).sum())} of {len(d)} games ShotQuality's SQ PPP implies "
+                       f"6-25% fewer or more possessions than the score's PPP. These are the site's own numbers (its SQ "
+                       f"possessions aren't always the scored ones); the metrics use the score's possessions.",
+                       _ex(d[(gap > 0.06) & (gap <= 0.25)], fmt, 2)))
 
     # 4. Plausible ranges
     odd = final[(final[["away_score", "home_score"]] < 25).any(axis=1) | (final[["away_score", "home_score"]] > 150).any(axis=1)
@@ -93,33 +97,45 @@ def run(conn: sqlite3.Connection) -> list[Finding]:
                        f"{len(unresolved)} game(s) have a spread whose team abbreviation couldn't be matched "
                        f"(no spread pick or ATS for them).",
                        _ex(unresolved, lambda r: f"{label(r)}: '{r.spread_pre_team} {r.spread_pre:+g}'")))
-    s = g.dropna(subset=["home_spread_pre", "away_pregame_sq_ppp", "home_pregame_sq_ppp"])
-    if len(s):
-        proj = (s["home_pregame_sq_ppp"] - s["away_pregame_sq_ppp"]) * 68  # rough home margin from ShotQuality
-        market = -s["home_spread_pre"]
-        flipped = s[((market >= 8) & (proj <= -4)) | ((market <= -8) & (proj >= 4))]
-        out.append(Finding("WARN" if len(flipped) else "OK", "Spread on the right team",
-                           f"{len(flipped)} of {len(s)} lines favor one team by 8+ while ShotQuality's pregame "
-                           f"projection favors the other by 4+ (check these on the site: the spread may be "
-                           f"assigned to the wrong team).",
-                           _ex(flipped, lambda r: f"{label(r)}: home line {r.home_spread_pre:+g} "
-                                                  f"(card: '{r.line_text or ''}'), pregame SQ PPP {r.away_pregame_sq_ppp:.2f} "
-                                                  f"away / {r.home_pregame_sq_ppp:.2f} home")))
+    # Spreads matched on a weak guess (letters in order, not a prefix or initials) are worth a look.
+    from .parse import _abbr_score
 
-    # 6b. Pregame SQ numbers on the right team, date by date: ShotQuality's projection and the betting line
-    # should usually favor the same side. A date where they mostly disagree suggests the two pregame
-    # numbers were swapped between the teams on that date's cards.
-    s3 = s[s["home_spread_pre"].abs() >= 3] if len(s) else s
-    if len(s3) >= 20:
-        agree = np.sign(s3["home_pregame_sq_ppp"] - s3["away_pregame_sq_ppp"]) == np.sign(-s3["home_spread_pre"])
-        by_date = agree.groupby(s3["game_date"]).agg(["mean", "size"])
-        bad_dates = by_date[(by_date["size"] >= 4) & (by_date["mean"] < 0.5)].sort_index()
-        n_bad = int(s3["game_date"].isin(bad_dates.index).sum())
-        out.append(Finding("WARN" if len(bad_dates) else "OK", "Pregame SQ on the right team",
-                           f"Overall the pregame projection and the line favor the same team in {agree.mean():.0%} of "
-                           f"{len(s3)} games with a line of 3+. {len(bad_dates)} date(s) ({n_bad} games) where they "
-                           f"mostly disagree, which suggests the pregame numbers were swapped between the teams there.",
-                           [f"{k}: agree in {v['mean']:.0%} of {int(v['size'])} games" for k, v in bad_dates.head(8).iterrows()]))
+    sp = g[g["spread_pre_team"].notna() & g["home_spread_pre"].notna()]
+    weak = sp[[max(_abbr_score(t, a), _abbr_score(t, h)) == 1
+               for t, a, h in zip(sp["spread_pre_team"], sp["away_team"], sp["home_team"])]] if len(sp) else sp
+    out.append(Finding("WARN" if len(weak) else "OK", "Spreads matched confidently",
+                       f"{len(weak)} spread(s) were tied to a team only by a weak letter match; check them on the site.",
+                       _ex(weak, lambda r: f"{label(r)}: '{r.line_text or ''}' -> home line {r.home_spread_pre:+g}")))
+
+    # 6b. Is "Pregame SQ" a game-day number or the team's current rating? If every team carries one value
+    # all season, and it matches the team's full-season SQ PPP better than its early-season SQ PPP, the
+    # site is filling in past games with end-of-season ratings: they contain later results (hindsight),
+    # so SQ edge on filled-in history would look better than it can be in real time.
+    rows = []
+    for side in ("away", "home"):
+        rows.append(pd.DataFrame({"team": final[f"{side}_team"], "season": final["season"], "date": final["game_date"],
+                                  "pre": final[f"{side}_pregame_sq_ppp"], "sq": final[f"{side}_sq_ppp"]}))
+    long = pd.concat(rows).dropna().sort_values("date")
+    if len(long) >= 200:
+        per = long.groupby(["season", "team"])
+        stats = pd.DataFrame({"G": per.size(), "distinct": per["pre"].apply(lambda v: v.round(2).nunique()),
+                              "pre": per["pre"].mean(), "full": per["sq"].mean(),
+                              "early": per["sq"].apply(lambda v: v.head(8).mean())})
+        stats = stats[stats["G"] >= 12]
+        if len(stats) >= 20:
+            static = float((stats["distinct"] == 1).mean())
+            r_full = float(stats["pre"].corr(stats["full"]))
+            r_early = float(stats["pre"].corr(stats["early"]))
+            hindsight = static >= 0.6 and r_full > r_early + 0.05
+            out.append(Finding("WARN" if hindsight else "INFO", "Pregame SQ: game-day number or current rating?",
+                               f"{static:.0%} of {len(stats)} teams have the same pregame SQ value in every game. It "
+                               f"matches teams' full-season SQ PPP (r = {r_full:.2f}) "
+                               + ("better than their first-8-games SQ PPP" if r_full > r_early else "no better than their first-8-games SQ PPP")
+                               + f" (r = {r_early:.2f}). "
+                               + ("That looks like each team's end-of-season rating filled into past games: it contains "
+                                  "later results, so SQ edge on filled-in history is hindsight. Judge SQ edge only on picks "
+                                  "saved on game day (`cbbsq grade --saved-only`)." if hindsight else
+                                  "No sign that later results leaked into past games' pregame values.")))
 
     # 7. Team names: one team stored under two spellings splits its history
     names = sorted(set(g["away_team"]) | set(g["home_team"]))
@@ -132,8 +148,9 @@ def run(conn: sqlite3.Connection) -> list[Finding]:
                        f"{len(dupes)} team(s) appear under more than one spelling.", [" / ".join(v) for v in dupes[:5]]))
     games_per = pd.concat([g["away_team"], g["home_team"]]).value_counts()
     odd_names = [n for n in names if re.search(r"[,(\[]", n)]
-    out.append(Finding("WARN" if odd_names else "OK", "Team names read cleanly",
-                       f"{len(odd_names)} team name(s) contain a comma or bracket (extra text read with the name).",
+    out.append(Finding("INFO" if odd_names else "OK", "Team names with extra text",
+                       f"{len(odd_names)} team name(s) contain a comma or bracket. That's harmless as long as each team "
+                       f"has one spelling (see the check above).",
                        [f"{n} ({games_per.get(n, 0)} games)" for n in odd_names[:8]]))
 
     # 8. SQ scoring level (informational): how far real scoring runs above SQ points league-wide

@@ -177,6 +177,8 @@ cbbsq grade --min-luck 4 --min-last5 0    # combine: only picks with luck edge >
 cbbsq grade --metric sq_edge --season 2026
 ```
 
+**Filled-in history vs game-day picks.** ShotQuality's "Pregame SQ" can be filled into past games with each team's *current* rating when you collect after the fact, which already reflects later results; `cbbsq audit` checks for this. Numbers built on it (SQ edge especially) then look better in filled-in history than they can in real time. Picks saved on game day don't have that problem: use `cbbsq grade --saved-only`, or set **History: Saved on game day** on the dashboard's Thresholds tab, to judge a threshold on those alone.
+
 The dashboard's **Find your threshold** card does the same interactively: set a target win %, click a number's row to add it to the filter, stack filters, and the spots table ticks today's games that pass. The ± next to each win % is its 95% range. A threshold found by looking back at results flatters itself, so trust it once the low end of the range clears 52.4%, and check that it holds on new games or the next season.
 
 ### Totals (over / under)
