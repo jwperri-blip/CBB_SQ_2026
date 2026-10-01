@@ -26,11 +26,14 @@ def make_settings(tmp_path, url, password=PASSWORD, **over):
     "/scorecenter?date={date}",      # date in the URL
     "/scorecenter",                  # popup calendar date picker
     "/scorecenter?picker=input",     # typed date input
+    "/scorecenter?picker=shadcn&date=2026-09-24",  # shadcn calendar opening months away
 ])
 def test_collect_all_date_modes(tmp_path, mock_site, path):
     s = make_settings(tmp_path, mock_site + path)
-    failures = collect(s, [date(2026, 1, 10), date(2026, 1, 11), date(2025, 12, 30)], log=lambda m: None)
+    msgs = []
+    failures = collect(s, [date(2026, 1, 10), date(2026, 1, 11), date(2025, 12, 30)], log=msgs.append)
     assert failures == 0
+    assert not [m for m in msgs if "warning" in m]  # page count and cards read agree on every date
     conn = sqlite3.connect(s.db_path)
     conn.row_factory = sqlite3.Row
     rows = {r["game_id"]: dict(r) for r in conn.execute("SELECT * FROM games")}
@@ -55,6 +58,16 @@ def test_collect_all_date_modes(tmp_path, mock_site, path):
     assert len(list(s.raw_dir.glob("*/*.json.gz"))) == 3
     runs = conn.execute("SELECT COUNT(*) FROM scrape_runs WHERE ok = 1").fetchone()[0]
     assert runs == 3
+
+
+
+def test_slow_big_slate_is_waited_for(tmp_path, mock_site):
+    # the real site can take 15 s or more to show a big slate after a date pick
+    s = make_settings(tmp_path, mock_site + "/scorecenter?picker=shadcn&date=2026-09-24&lag=18000")
+    msgs = []
+    assert collect(s, [date(2026, 1, 11), date(2026, 1, 10)], log=msgs.append) == 0
+    assert not [m for m in msgs if "warning" in m]
+    assert sqlite3.connect(s.db_path).execute("SELECT COUNT(*) FROM games").fetchone()[0] == 5
 
 
 def test_raw_archive_contains_api_json_and_reparse(tmp_path, mock_site):

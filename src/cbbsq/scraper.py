@@ -131,15 +131,49 @@ _CALENDAR_STATE_JS = r"""
 _CLICK_NAV_JS = r"""
 (dir) => {
   const visible = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const re = dir === 'prev' ? /prev|previous|back/i : /next|forward/i;
-  for (const e of document.querySelectorAll('button, [role="button"]')) {
-    const label = [e.getAttribute('aria-label'), e.getAttribute('name'), e.getAttribute('title'),
-                   typeof e.className === 'string' ? e.className : ''].join(' ');
-    if (visible(e) && re.test(label)) { e.click(); return true; }
+  // accessible names: "Go to the Previous Month", "Next month", ...
+  const labelRe = dir === 'prev' ? /prev|previous|back|earlier/i : /next|forward|later/i;
+  // class names need whole words: Tailwind's "bg-background" must not read as "back"
+  const classRe = dir === 'prev' ? /(^|[^a-z])prev(ious)?([^a-z]|$)/i : /(^|[^a-z])next([^a-z]|$)/i;
+  const label = (e) => [e.getAttribute('aria-label'), e.getAttribute('name'), e.getAttribute('title')].join(' ');
+  const cls = (e) => e.getAttribute('class') || '';
+  const isDay = (e) => /^\d{1,2}$/.test((e.textContent || '').trim());
+  // search outward from the calendar's "August 2026" caption, so page buttons never win
+  const capRe = /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i;
+  let caption = null;
+  for (const e of document.querySelectorAll('body *')) {
+    if (e.children.length === 0 && visible(e) && capRe.test((e.textContent || '').trim())) { caption = e; break; }
+  }
+  const roots = [];
+  for (let a = caption && caption.parentElement; a && a !== document.body; a = a.parentElement) roots.push(a);
+  roots.push(document.body);
+  for (const root of roots) {
+    const btns = [...root.querySelectorAll('button, [role="button"]')].filter((b) => visible(b) && !isDay(b));
+    const hit = btns.find((b) => labelRe.test(label(b))) || btns.find((b) => classRe.test(cls(b)));
+    if (hit) { hit.click(); return true; }
+    // unlabeled arrows either side of the caption
+    if (root !== document.body && btns.length === 2) { btns[dir === 'prev' ? 0 : 1].click(); return true; }
   }
   return false;
 }
 """
+
+_CALENDAR_OPEN_JS = r"""
+() => {
+  const visible = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const capRe = /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i;
+  for (const e of document.querySelectorAll('body *'))
+    if (e.children.length === 0 && visible(e) && capRe.test((e.textContent || '').trim())) return true;
+  return false;
+}
+"""
+
+_SHOWING_JS = r"""
+() => { const m = (document.body ? document.body.innerText : '').match(/Showing\s+\d+\s+of\s+\d+\s+games?/i);
+        return m ? m[0] : null; }
+"""
+
+_HAS_CARDS_JS = "() => /SQ Score/i.test(document.body ? document.body.innerText : '')"
 
 _WAIT_GAMES_JS = r"""
 () => {
@@ -166,15 +200,14 @@ class Scraper:
         self.capture_network = capture_network
         self.log = log
         self._responses: list = []
+        self._fetched: list[str] = []  # every XHR/fetch URL, to see when a date's data arrives
         self._pw = None
         self.context = None
         self.page = None
 
     # ------------------------------------------------------------ lifecycle
     def __enter__(self) -> "Scraper":
-        from playwright.sync_api import sync_playwright
-
-        self._pw = sync_playwright().start()
+        self._pw = self._start_playwright()
         self.settings.profile_dir.mkdir(parents=True, exist_ok=True)
         kwargs = dict(headless=self.headless, viewport={"width": 1600, "height": 1000})
         if self.settings.browser_channel:
@@ -184,6 +217,20 @@ class Scraper:
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.page.on("response", self._on_response)
         return self
+
+    def _start_playwright(self, attempts: int = 5):
+        """Start Playwright's Node driver, retrying the intermittent startup crash
+        ("Connection closed while reading from the driver") seen on some Macs."""
+        from playwright.sync_api import sync_playwright
+
+        for attempt in range(1, attempts + 1):
+            try:
+                return sync_playwright().start()
+            except Exception as exc:
+                if "Connection closed" not in str(exc) or attempt == attempts:
+                    raise
+                self.log(f"Playwright driver failed to start (try {attempt}/{attempts}); retrying...")
+                time.sleep(attempt)
 
     def __exit__(self, *exc) -> None:
         try:
@@ -195,11 +242,12 @@ class Scraper:
 
     # -------------------------------------------------------------- network
     def _on_response(self, response) -> None:
-        if not self.capture_network:
-            return
         try:
             req = response.request
             if req.resource_type not in ("xhr", "fetch"):
+                return
+            self._fetched.append(response.url)
+            if not self.capture_network:
                 return
             if _ANALYTICS.search(response.url) or _AUTHY.search(response.url):
                 return
@@ -384,6 +432,24 @@ class Scraper:
             self._wait_for_games()
         self.set_date_ui(d)
 
+    def _wait_for_date_data(self, d: date, mark: int, label: Optional[str]) -> None:
+        """After picking a date the page updates in stages (old cards vanish, the new day's data
+        is fetched, cards render, then the "Showing N games" line). Wait for the data request and
+        the new count so a half-updated page is never read."""
+        tokens = date_formats(d)
+        deadline = time.time() + 20
+        while time.time() < deadline and not any(t in u for u in self._fetched[mark:] for t in tokens):
+            self.page.wait_for_timeout(250)
+        if label:
+            # done once the count line changes; if it doesn't (two dates with the same number of
+            # games) accept the page after 8 s, but only once game cards are showing again -
+            # big slates can take well over that to appear
+            start = time.time()
+            while time.time() < start + 60 and self.page.evaluate(_SHOWING_JS) == label:
+                if time.time() > start + 8 and self.page.evaluate(_HAS_CARDS_JS):
+                    break
+                self.page.wait_for_timeout(250)
+
     def _read_date_control(self) -> Optional[dict]:
         return self.page.evaluate(_FIND_DATE_CONTROL_JS)
 
@@ -404,6 +470,7 @@ class Scraper:
         if self._matches(ctl["value"], d):
             return
         signature = page.evaluate(_SIGNATURE_JS)
+        label, mark = page.evaluate(_SHOWING_JS), len(self._fetched)
         target = page.locator('[data-cbbsq-date="1"]').first
         if ctl["kind"] == "input":
             text = d.isoformat() if ctl["type"] == "date" else d.strftime("%m/%d/%Y")
@@ -419,9 +486,12 @@ class Scraper:
                 target.press("Enter")
             page.keyboard.press("Escape")
         else:
-            target.click()
-            page.wait_for_timeout(400)
+            # the popup can still be open from the last pick; clicking the button then would close it
+            if not page.evaluate(_CALENDAR_OPEN_JS):
+                target.click()
+                page.wait_for_timeout(400)
             self._pick_calendar_day(d)
+        self._wait_for_date_data(d, mark, label)
         self._wait_for_games(previous_signature=signature)
         now = self._read_date_control()
         if not now or not self._matches(now["value"], d):
@@ -438,7 +508,7 @@ class Scraper:
             if state.get("found"):
                 page.locator('[data-cbbsq-day="1"]').first.click()
                 page.wait_for_timeout(300)
-                if page.locator('[data-cbbsq-day="1"]').count() and page.locator('[data-cbbsq-day="1"]').first.is_visible():
+                if page.evaluate(_CALENDAR_OPEN_JS):
                     page.keyboard.press("Escape")  # popup stayed open
                 return
             caption = state.get("caption")
@@ -505,6 +575,10 @@ class Scraper:
         self.drain_network()
         self.goto_date(d)
         data = self.extract()
+        if data.get("showing") is not None and len(data["cards"]) != data["showing"]:
+            self.page.wait_for_timeout(2_000)  # still rendering: give it one more look
+            self._wait_for_games()
+            data = self.extract()
         result = {
             "date": d.isoformat(),
             "url": self.page.url,
