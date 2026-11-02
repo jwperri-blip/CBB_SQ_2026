@@ -49,7 +49,7 @@ def test_nba_settings_are_separate(nba, clean_env):
 
 def test_nba_never_falls_back_to_the_college_scorecenter(nba, clean_env):
     clean_env.setenv("SQ_SCORECENTER_URL", "https://sq.test/cbb")
-    assert Settings.load(None).scorecenter_url is None
+    assert Settings.load(None).scorecenter_url == "https://trader.shotquality.com/nba/scorecenter"
 
 
 def test_nba_season_calendar(nba):

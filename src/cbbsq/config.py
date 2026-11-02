@@ -58,7 +58,7 @@ class Settings:
         return cls(
             email=both("EMAIL"),
             password=both("PASSWORD"),
-            scorecenter_url=env(lg.url_var) or None,
+            scorecenter_url=env(lg.url_var) or lg.default_url,
             login_url=both("LOGIN_URL"),
             date_mode=(both("DATE_MODE") or "auto").lower(),
             db_path=Path(env(pre + "DB") or lg.db_file),

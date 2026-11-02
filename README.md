@@ -222,7 +222,7 @@ The two leagues never share data, so running one can't change the other:
 
 | | College (`cbbsq`) | NBA (`nbasq`) |
 |---|---|---|
-| ScoreCenter URL in `.env` | `SQ_SCORECENTER_URL` | `NBA_SQ_SCORECENTER_URL` |
+| ScoreCenter URL in `.env` | `SQ_SCORECENTER_URL` | `NBA_SQ_SCORECENTER_URL` (default `https://trader.shotquality.com/nba/scorecenter`, nothing to set) |
 | Login | `SQ_EMAIL` / `SQ_PASSWORD` | the same (or `NBA_SQ_EMAIL` / `NBA_SQ_PASSWORD`) |
 | Database, raw captures | `data/cbbsq.sqlite`, `data/raw/` | `data/nba/nbasq.sqlite`, `data/nba/raw/` |
 | Browser session | `.auth/profile` | `.auth/nba-profile` (log in once with `nbasq login --headed`) |
@@ -237,7 +237,6 @@ Getting started mid-season:
 
 ```bash
 pip install -e .                                   # adds the nbasq command (after a git pull)
-# in .env:  NBA_SQ_SCORECENTER_URL=<the NBA ScoreCenter address from your browser>
 nbasq login --headed                               # its own browser session, log in once
 nbasq probe --date yesterday                       # check the cards read correctly; suggests a {date} URL
 nbasq collect --start 2026-10-20 --skip-done       # the season so far (through yesterday)

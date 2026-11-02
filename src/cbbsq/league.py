@@ -34,6 +34,7 @@ class League:
     reports_dir: Path
     port: int
     score_range: tuple     # plausible final score for one team (audit)
+    default_url: str | None = None  # ScoreCenter address used when the URL setting is empty
 
     def in_season(self, d: date) -> bool:
         return d.month in self.season_months
@@ -71,6 +72,7 @@ NBA = League(
     data_dir=Path("data/nba"), db_file=Path("data/nba/nbasq.sqlite"), raw_dir=Path("data/nba/raw"),
     # Its own browser profile: Chromium locks a profile, so a CBB and an NBA run can't share one.
     profile_dir=Path(".auth/nba-profile"), reports_dir=Path("reports/nba"), port=8766, score_range=(60, 190),
+    default_url="https://trader.shotquality.com/nba/scorecenter",
 )
 
 LEAGUES = {lg.key: lg for lg in (CBB, NBA)}
