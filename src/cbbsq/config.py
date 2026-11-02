@@ -40,20 +40,32 @@ class Settings:
 
     @classmethod
     def load(cls, env_file: str | os.PathLike | None = ".env") -> "Settings":
+        """Settings for the current league (see league.py). College basketball reads SQ_* and CBBSQ_*;
+        the NBA reads NBA_SQ_SCORECENTER_URL and NBASQ_*, and shares the ShotQuality login (SQ_EMAIL /
+        SQ_PASSWORD) unless NBA_SQ_EMAIL / NBA_SQ_PASSWORD are set."""
+        from .league import current
+
         if env_file:
             load_dotenv(Path(env_file))
         env = os.environ.get
+        lg = current()
+        pre = lg.env_prefix
+        sq = "SQ_" if lg.key == "cbb" else f"{lg.key.upper()}_SQ_"
+
+        def both(name: str):  # league-specific value, else the shared one
+            return env(sq + name) or env("SQ_" + name) or None
+
         return cls(
-            email=env("SQ_EMAIL") or None,
-            password=env("SQ_PASSWORD") or None,
-            scorecenter_url=env("SQ_SCORECENTER_URL") or None,
-            login_url=env("SQ_LOGIN_URL") or None,
-            date_mode=(env("SQ_DATE_MODE") or "auto").lower(),
-            db_path=Path(env("CBBSQ_DB") or "data/cbbsq.sqlite"),
-            raw_dir=Path(env("CBBSQ_RAW_DIR") or "data/raw"),
-            profile_dir=Path(env("CBBSQ_PROFILE_DIR") or ".auth/profile"),
-            browser_channel=env("CBBSQ_BROWSER_CHANNEL") or None,
-            delay_seconds=float(env("CBBSQ_DELAY_SECONDS") or 4),
-            serve_password=env("CBBSQ_SERVE_PASSWORD") or None,
-            serve_port=int(env("CBBSQ_SERVE_PORT") or 8765),
+            email=both("EMAIL"),
+            password=both("PASSWORD"),
+            scorecenter_url=env(lg.url_var) or None,
+            login_url=both("LOGIN_URL"),
+            date_mode=(both("DATE_MODE") or "auto").lower(),
+            db_path=Path(env(pre + "DB") or lg.db_file),
+            raw_dir=Path(env(pre + "RAW_DIR") or lg.raw_dir),
+            profile_dir=Path(env(pre + "PROFILE_DIR") or lg.profile_dir),
+            browser_channel=env(pre + "BROWSER_CHANNEL") or env("CBBSQ_BROWSER_CHANNEL") or None,
+            delay_seconds=float(env(pre + "DELAY_SECONDS") or env("CBBSQ_DELAY_SECONDS") or 4),
+            serve_password=env(pre + "SERVE_PASSWORD") or None,
+            serve_port=int(env(pre + "SERVE_PORT") or lg.port),
         )

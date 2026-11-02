@@ -76,10 +76,13 @@ def run(conn: sqlite3.Connection) -> list[Finding]:
                        _ex(d[(gap > 0.06) & (gap <= 0.25)], fmt, 2)))
 
     # 4. Plausible ranges
-    odd = final[(final[["away_score", "home_score"]] < 25).any(axis=1) | (final[["away_score", "home_score"]] > 150).any(axis=1)
+    from .league import current
+
+    lo, hi = current().score_range
+    odd = final[(final[["away_score", "home_score"]] < lo).any(axis=1) | (final[["away_score", "home_score"]] > hi).any(axis=1)
                 | (final[["away_ppp", "home_ppp"]] < 0.4).any(axis=1) | (final[["away_ppp", "home_ppp"]] > 1.8).any(axis=1)]
     out.append(Finding("WARN" if len(odd) else "OK", "Values in a plausible range",
-                       f"{len(odd)} final game(s) with a score outside 25-150 or PPP outside 0.4-1.8.",
+                       f"{len(odd)} final game(s) with a score outside {lo}-{hi} or PPP outside 0.4-1.8.",
                        _ex(odd, lambda r: f"{label(r)}: {r.away_score}-{r.home_score}")))
 
     # 5. Home / away orientation: home teams win by ~3 on average

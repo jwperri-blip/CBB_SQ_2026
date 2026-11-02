@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import analysis, picks
+from .league import current
 
 LOG_COLS = ["game_date", "team", "opponent", "side", "pts", "opp_pts", "sq_pts", "opp_sq_pts", "sq_ppp",
             "opp_sq_ppp", "ppp", "opp_ppp", "sq_pct", "pre_sq_ppp", "spread", "margin", "sq_margin", "luck"]
@@ -68,6 +69,10 @@ def build_payload(tg: pd.DataFrame, *, min_games: int = 3, trend_window: int = 5
 def write_report(tg: pd.DataFrame, out_path: Path, **kwargs) -> Path:
     payload = build_payload(tg, **kwargs)
     template = resources.files("cbbsq").joinpath("templates/dashboard.html").read_text(encoding="utf-8")
+    lg = current()
+    if lg.key != "cbb":  # same page, this league's title, commands and saved-settings keys
+        template = (template.replace("CBB Shot Quality", lg.title).replace("`cbbsq ", f"`{lg.command} ")
+                    .replace("'cbbsq_", f"'{lg.command}_"))
     data = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(template.replace("/*__DATA__*/null", data), encoding="utf-8")

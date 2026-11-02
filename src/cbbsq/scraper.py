@@ -16,6 +16,7 @@ from typing import Callable, Optional
 from urllib.parse import quote
 
 from .config import Settings
+from .league import current as _league
 
 EXTRACT_JS = resources.files("cbbsq").joinpath("extract_cards.js").read_text(encoding="utf-8")
 
@@ -193,8 +194,8 @@ class Scraper:
                  log: Callable[[str], None] = print):
         if not settings.scorecenter_url:
             raise ScraperError(
-                "SQ_SCORECENTER_URL is not set. Open the CBB ScoreCenter in your browser and copy "
-                "the address bar URL into .env (see .env.example).")
+                f"{_league().url_var} is not set. Open the {_league().name} ScoreCenter in your browser and "
+                "copy the address bar URL into .env (see .env.example).")
         self.settings = settings
         self.headless = headless
         self.capture_network = capture_network
@@ -326,13 +327,13 @@ class Scraper:
             if not (self.settings.email and self.settings.password):
                 raise LoginRequired(
                     "Not logged in and SQ_EMAIL / SQ_PASSWORD are not set. Either add them to .env "
-                    "or run `cbbsq login --headed` once to log in manually.")
+                    f"or run `{_league().command} login --headed` once to log in manually.")
             self._fill_login_form()
         self.open_scorecenter()
         if self.needs_login() or not self._scorecenter_ready(20_000):
             raise LoginRequired(
                 "Login did not reach the ScoreCenter. If the site uses a CAPTCHA/SSO, run "
-                "`cbbsq login --headed` and log in manually; otherwise check SQ_LOGIN_URL.")
+                f"`{_league().command} login --headed` and log in manually; otherwise check SQ_LOGIN_URL.")
         self.log("Logged in.")
 
     def _has_logged_in_marker(self) -> bool:
@@ -466,7 +467,7 @@ class Scraper:
         if ctl is None:
             raise ScraperError(
                 "Could not find the ScoreCenter date control. Put a {date} placeholder in "
-                "SQ_SCORECENTER_URL if the page URL carries the date (run `cbbsq probe` to check).")
+                f"{_league().url_var} if the page URL carries the date (run `{_league().command} probe` to check).")
         if self._matches(ctl["value"], d):
             return
         signature = page.evaluate(_SIGNATURE_JS)
@@ -497,7 +498,7 @@ class Scraper:
         if not now or not self._matches(now["value"], d):
             raise ScraperError(
                 f"Tried to switch the ScoreCenter to {d:%m/%d/%Y} but it shows "
-                f"{now and now['value']!r}. Run `cbbsq probe` and see README > Troubleshooting.")
+                f"{now and now['value']!r}. Run `{_league().command} probe` and see README > Troubleshooting.")
 
     def _pick_calendar_day(self, d: date) -> None:
         page = self.page

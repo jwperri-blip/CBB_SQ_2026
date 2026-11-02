@@ -14,6 +14,12 @@ import pandas as pd
 
 from . import analysis, db, picks
 from .config import Settings
+from .league import LEAGUES, current
+
+
+def _cmd() -> str:
+    """This league's command name, for messages: cbbsq or nbasq."""
+    return current().command
 
 
 def _date(value: str) -> date:
@@ -32,7 +38,7 @@ def _date(value: str) -> date:
 
 def _print(df: pd.DataFrame, digits: int = 3, rows: int | None = None) -> None:
     if df.empty:
-        print("No data. Collect some games first (`cbbsq collect`).")
+        print(f"No data. Collect some games first (`{_cmd()} collect`).")
         return
     with pd.option_context("display.max_rows", rows or len(df), "display.max_columns", 50, "display.width", 250,
                            "display.float_format", lambda v: f"{v:.{digits}f}"):
@@ -56,7 +62,7 @@ def _resolve_team(tg: pd.DataFrame, query: str) -> str:
     if len(hits) == 1:
         return hits[0]
     if not hits:
-        sys.exit(f"No team matching {query!r}. Try `cbbsq teams`.")
+        sys.exit(f"No team matching {query!r}. Try `{_cmd()} teams`.")
     sys.exit(f"{query!r} matches several teams: {', '.join(hits)}")
 
 
@@ -87,7 +93,7 @@ def cmd_collect(settings: Settings, args) -> None:
     failures = collect(settings, dates, headless=not args.headed, save_html=args.save_html,
                        skip_done=args.skip_done)
     if failures:
-        sys.exit(f"{failures} date(s) failed - see messages above (or `cbbsq status`).")
+        sys.exit(f"{failures} date(s) failed - see messages above (or `{_cmd()} status`).")
 
 
 def cmd_watch(settings: Settings, args) -> None:
@@ -115,7 +121,7 @@ def cmd_probe(settings: Settings, args) -> None:
     from .parse import parse_cards
     from .scraper import Scraper, suggest_url_template
 
-    out = Path("data/probe") / datetime.now().strftime("%Y%m%d-%H%M%S")
+    out = current().data_dir / "probe" / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
     d = args.date or date.today() - timedelta(days=1)
     notes = []
@@ -132,7 +138,7 @@ def cmd_probe(settings: Settings, args) -> None:
             if "{date" not in settings.scorecenter_url:
                 tpl = suggest_url_template(s.page.url, d)
                 if tpl:
-                    notes.append(f"The URL carries the date. Suggested .env setting:\n  SQ_SCORECENTER_URL={tpl}")
+                    notes.append(f"The URL carries the date. Suggested .env setting:\n  {current().url_var}={tpl}")
                 else:
                     notes.append("The URL does not change with the date; date-picker navigation (SQ_DATE_MODE=ui) will be used.")
         except Exception as exc:
@@ -254,7 +260,7 @@ def _update_picks(conn) -> None:
     """Save today's (and any missing past) picks, and grade everything that has finished."""
     new, graded = picks.update(conn)
     if new or graded:
-        print(f"Picks: {new} new saved, {graded} newly graded (`cbbsq grade` finds the winning thresholds).\n")
+        print(f"Picks: {new} new saved, {graded} newly graded (`{_cmd()} grade` finds the winning thresholds).\n")
 
 
 def _result_text(result, cover) -> str:
@@ -311,7 +317,7 @@ def cmd_spots(settings: Settings, args) -> None:
     results = picks.results_for_date(conn, on, market).set_index("game_id")
     conn.close()
     if spots.empty:
-        print(f"No games stored for {on}. Run `cbbsq collect --date {on}` first.")
+        print(f"No games stored for {on}. Run `{_cmd()} collect --date {on}` first.")
         return
     if args.min_gap:
         spots = spots[spots["gap"] >= args.min_gap]
@@ -379,7 +385,7 @@ def cmd_grade(settings: Settings, args) -> None:
     conn.close()
     g = picks.graded(allp)
     if g.empty:
-        print("No graded picks yet. Picks are saved when you run `cbbsq spots` or `cbbsq report`, "
+        print(f"No graded picks yet. Picks are saved when you run `{_cmd()} spots` or `{_cmd()} report`, "
               "and graded once the games are final.")
         return
     target = args.target / 100 if args.target > 1 else args.target
@@ -420,7 +426,7 @@ def cmd_grade(settings: Settings, args) -> None:
 def cmd_daily(settings: Settings, args) -> None:
     from .automate import run_daily
 
-    print(f"--- cbbsq daily {datetime.now():%Y-%m-%d %H:%M} ---")
+    print(f"--- {_cmd()} daily {datetime.now():%Y-%m-%d %H:%M} ---")
     code = run_daily(settings, today=args.date, out=Path(args.out), headless=not args.headed, force=args.force)
     if code:
         sys.exit(code)
@@ -440,11 +446,11 @@ def cmd_schedule(settings: Settings, args) -> None:
         install_schedule(Path(args.env), times=times, serve=args.serve)
     except (RuntimeError, ValueError) as exc:
         sys.exit(f"error: {exc}")
-    print(f"`cbbsq daily` will run every day at {', '.join(times)} (a run missed while the Mac slept happens "
-          f"when it wakes). It does nothing May-October. Log: data/daily.log\n"
-          f"To update right now (or again), run `cbbsq update`.")
+    print(f"`{_cmd()} daily` will run every day at {', '.join(times)} (a run missed while the Mac slept happens "
+          f"when it wakes). It does nothing {current().offseason_text}. Log: {current().log_path}\n"
+          f"To update right now (or again), run `{_cmd()} update`.")
     if args.serve:
-        print("The web server now runs in the background; `cbbsq serve --info` shows its addresses and password.")
+        print(f"The web server now runs in the background; `{_cmd()} serve --info` shows its addresses and password.")
 
 
 def cmd_serve(settings: Settings, args) -> None:
@@ -457,7 +463,7 @@ def cmd_serve(settings: Settings, args) -> None:
         for addr in _addresses():
             print(f"  http://{addr}:{port}/")
         return
-    print(f"Password: {password}  (any username; stored in {args.env} as CBBSQ_SERVE_PASSWORD)")
+    print(f"Password: {password}  (any username; stored in {args.env} as {current().env_prefix}SERVE_PASSWORD)")
     serve(Path(args.dir), password, host=args.host, port=port)
 
 
@@ -472,7 +478,7 @@ def cmd_audit(settings: Settings, args) -> None:
     findings = run(conn)
     conn.close()
     for f in findings:
-        print(f"[{f.level:4}] {f.title}: {f.detail}")
+        print(f"[{f.level:4}] {f.title}: {f.detail}".replace("`cbbsq ", f"`{_cmd()} "))
         for ex in f.examples:
             print(f"         - {ex}")
     warns = sum(f.level == "WARN" for f in findings)
@@ -509,8 +515,11 @@ def cmd_report(settings: Settings, args) -> None:
 
 # ---------------------------------------------------------------------- main
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="cbbsq", description="Log, track and analyze ShotQuality CBB data.")
+    lg = current()
+    p = argparse.ArgumentParser(prog=lg.command, description=f"Log, track and analyze ShotQuality {lg.name} data.")
     p.add_argument("--env", default=".env", help="settings file (default: .env)")
+    p.add_argument("--league", choices=sorted(LEAGUES), default=lg.key,
+                   help=f"which league (default {lg.key}; `nbasq` is the same as `cbbsq --league nba`)")
     sub = p.add_subparsers(dest="command", required=True)
 
     def filters(sp, min_games=1):
@@ -530,7 +539,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--start", type=_date, help="backfill from this date...")
     sp.add_argument("--end", type=_date, help="...through this date (default yesterday)")
     sp.add_argument("--skip-done", action="store_true", help="skip dates whose games are already all final")
-    sp.add_argument("--include-offseason", action="store_true", help="don't skip May-October dates in ranges")
+    sp.add_argument("--include-offseason", action="store_true", help=f"don't skip {lg.offseason_text} dates in ranges")
     sp.add_argument("--save-html", action="store_true", help="also archive the page HTML")
     sp.add_argument("--headed", action="store_true", help="show the browser while scraping")
     sp.set_defaults(func=cmd_collect)
@@ -613,23 +622,23 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_grade)
 
     sp = sub.add_parser("daily", aliases=["update"],
-                        help="the daily routine (also `cbbsq update`): yesterday's finals, today's slate, both pages")
+                        help=f"the daily routine (also `{_cmd()} update`): yesterday's finals, today's slate, both pages")
     sp.add_argument("--date", type=_date, help="treat this date as today (default today)")
-    sp.add_argument("--out", default="reports/dashboard.html")
-    sp.add_argument("--force", action="store_true", help="run even in the off-season (May-October)")
+    sp.add_argument("--out", default=str(lg.dashboard))
+    sp.add_argument("--force", action="store_true", help=f"run even in the off-season ({lg.offseason_text})")
     sp.add_argument("--headed", action="store_true", help="show the browser while scraping")
     sp.set_defaults(func=cmd_daily)
 
-    sp = sub.add_parser("schedule", help="run `cbbsq daily` automatically (macOS); --serve keeps the web server up")
+    sp = sub.add_parser("schedule", help=f"run `{_cmd()} daily` automatically (macOS); --serve keeps the web server up")
     sp.add_argument("--at", action="append", metavar="HH:MM", help="time to run (repeatable; default 08:00 and 17:00)")
-    sp.add_argument("--serve", action="store_true", help="also keep `cbbsq serve` running in the background")
+    sp.add_argument("--serve", action="store_true", help=f"also keep `{_cmd()} serve` running in the background")
     sp.add_argument("--remove", action="store_true", help="remove the background jobs")
     sp.set_defaults(func=cmd_schedule)
 
     sp = sub.add_parser("serve", help="share the pages with other devices (password protected)")
-    sp.add_argument("--dir", default="reports", help="folder to serve (default reports)")
+    sp.add_argument("--dir", default=str(lg.reports_dir), help=f"folder to serve (default {lg.reports_dir})")
     sp.add_argument("--host", default="0.0.0.0", help="address to listen on (default all)")
-    sp.add_argument("--port", type=int, help="port (default 8765, or CBBSQ_SERVE_PORT)")
+    sp.add_argument("--port", type=int, help=f"port (default {lg.port}, or {lg.env_prefix}SERVE_PORT)")
     sp.add_argument("--info", action="store_true", help="print the addresses and password, then exit")
     sp.set_defaults(func=cmd_serve)
 
@@ -638,18 +647,25 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_audit)
 
     sp = sub.add_parser("export", help="write CSV files for Excel / Sheets")
-    sp.add_argument("--out", default="data/exports")
+    sp.add_argument("--out", default=str(lg.data_dir / "exports"))
     sp.set_defaults(func=cmd_export)
 
     sp = sub.add_parser("report", help="write the HTML dashboard")
-    sp.add_argument("--out", default="reports/dashboard.html")
+    sp.add_argument("--out", default=str(lg.dashboard))
     sp.add_argument("--spots-date", type=_date, help="slate for the regression spots table (default today)")
     filters(sp, min_games=3)
     sp.set_defaults(func=cmd_report)
     return p
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None, league: str | None = None) -> None:
+    from .league import use
+
+    # The league decides the parser's defaults (data, pages, port), so it's settled before the full parse.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--league", choices=sorted(LEAGUES))
+    known, _ = pre.parse_known_args(argv)
+    use(known.league or league or "cbb")
     args = build_parser().parse_args(argv)
     settings = Settings.load(args.env)
     try:
@@ -664,6 +680,11 @@ def main(argv: list[str] | None = None) -> None:
         if isinstance(exc, ScraperError):
             sys.exit(f"error: {exc}")
         raise
+
+
+def main_nba(argv: list[str] | None = None) -> None:
+    """The ``nbasq`` command: everything ``cbbsq`` does, for the NBA."""
+    main(argv, league="nba")
 
 
 if __name__ == "__main__":

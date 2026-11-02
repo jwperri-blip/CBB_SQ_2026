@@ -22,8 +22,10 @@ def daterange(start: date, end: date) -> list[date]:
 
 
 def in_season(d: date) -> bool:
-    """Division I games run from early November to early April."""
-    return d.month >= 11 or d.month <= 4
+    """Whether the current league plays in ``d``'s month (Division I: November to April; NBA: October to June)."""
+    from .league import current
+
+    return current().in_season(d)
 
 
 def write_raw(raw_dir: Path, result: dict, stamp: str) -> Path:

@@ -1,4 +1,4 @@
-# CBB_SQ_2026: college basketball Shot Quality tracker
+# CBB_SQ_2026: college basketball (and NBA) Shot Quality tracker
 
 `cbbsq` logs in to your **ShotQuality** account and reads the **CBB ScoreCenter** for each date. It stores every game in a local SQLite database and turns the history into team trends, leaderboards, opponent-adjusted ratings, "luck" (regression) tables and an HTML dashboard.
 
@@ -21,6 +21,8 @@ The left team on a card is stored as **away** and the right team as **home**, wh
 > **Terms of use:** this tool automates access to data your subscription already shows you, for your own analysis. Check ShotQuality's Terms of Service before using it, keep the default delay between requests, and don't publish or redistribute the data you collect.
 
 ---
+
+> **NBA too.** The same program runs the NBA as **`nbasq`**: every command below works with `nbasq` in place of `cbbsq`, with its own database, pages, login and schedule. See [NBA (`nbasq`)](#nba-nbasq).
 
 ## 1. Setup (one time, on your own computer)
 
@@ -211,6 +213,46 @@ import sqlite3, pandas as pd
 from cbbsq.analysis import load_team_games
 tg = load_team_games(sqlite3.connect("data/cbbsq.sqlite"), season=2026)
 ```
+
+## NBA (`nbasq`)
+
+`nbasq` is the same program pointed at ShotQuality's **NBA ScoreCenter**: the same cards, regression spots, totals, grading, thresholds, dashboard, daily routine, schedule and web server. `nbasq <command>` is shorthand for `cbbsq --league nba <command>`. Your ShotQuality subscription has to include the NBA.
+
+The two leagues never share data, so running one can't change the other:
+
+| | College (`cbbsq`) | NBA (`nbasq`) |
+|---|---|---|
+| ScoreCenter URL in `.env` | `SQ_SCORECENTER_URL` | `NBA_SQ_SCORECENTER_URL` |
+| Login | `SQ_EMAIL` / `SQ_PASSWORD` | the same (or `NBA_SQ_EMAIL` / `NBA_SQ_PASSWORD`) |
+| Database, raw captures | `data/cbbsq.sqlite`, `data/raw/` | `data/nba/nbasq.sqlite`, `data/nba/raw/` |
+| Browser session | `.auth/profile` | `.auth/nba-profile` (log in once with `nbasq login --headed`) |
+| Pages | `reports/dashboard.html` (+ `-totals`) | `reports/nba/dashboard.html` (+ `-totals`) |
+| Daily log | `data/daily.log` | `data/nba/daily.log` |
+| Background jobs | `com.cbbsq.daily` / `.serve` | `com.nbasq.daily` / `.serve` |
+| Web server | port 8765, `CBBSQ_SERVE_PASSWORD` | port 8766, `NBASQ_SERVE_PASSWORD` |
+| Season (daily runs, ranges) | November to April | October to June (regular season, play-in and playoffs) |
+| Other settings | `CBBSQ_*` | `NBASQ_*` |
+
+Getting started mid-season:
+
+```bash
+pip install -e .                                   # adds the nbasq command (after a git pull)
+# in .env:  NBA_SQ_SCORECENTER_URL=<the NBA ScoreCenter address from your browser>
+nbasq login --headed                               # its own browser session, log in once
+nbasq probe --date yesterday                       # check the cards read correctly; suggests a {date} URL
+nbasq collect --start 2026-10-20 --skip-done       # the season so far (through yesterday)
+nbasq audit                                        # data checks, including filled-in Pregame SQ
+nbasq update                                       # today's slate, picks and both pages
+nbasq schedule                                     # every day at 8:00 and 17:00 (--at to change)
+```
+
+Notes:
+
+* **Spreads.** NBA lines name the team by abbreviation (`LAL -3.5`). Besides the usual letter matching, `nbasq` knows every team's standard and alternate abbreviations (BKN/BRK, GS/GSW, PHX/PHO, NO/NOP, SA/SAS, UTA/UTAH, WAS/WSH, ...) by nickname and city, so a line is tied to the right team even when a card shows only "Nets" or "Phoenix".
+* **History and thresholds.** Picks need 5 earlier games per team, which most teams have two weeks in. Backfilled games are graded straight away, but backfilled Pregame SQ can contain hindsight (see *Filled-in history vs game-day picks*), so judge thresholds on `nbasq grade --saved-only` as game-day picks build up, and expect NBA thresholds to differ from college ones: the market is sharper.
+* **One server for both.** `cbbsq serve` serves the whole `reports/` folder, so the NBA pages are also at `/nba/dashboard.html` on the college server; `nbasq serve` (port 8766) is only needed if you want them separately.
+* **Both schedules at once is fine.** Each league has its own browser profile, so a college and an NBA run at the same minute don't collide.
+* `nbasq audit` flags a team score outside 60-190 (25-150 for college).
 
 ## How the scraper works (and why it should survive site updates)
 

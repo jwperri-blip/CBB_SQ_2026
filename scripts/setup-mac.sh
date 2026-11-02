@@ -40,5 +40,6 @@ Setup done. Next:
   cbbsq login --headed             # log in once in a browser window
   cbbsq status                     # check the database
   cbbsq schedule                   # daily updates at 8:00 and 17:00 (`cbbsq update` runs one now)
+NBA: the same commands as `nbasq` (set NBA_SQ_SCORECENTER_URL in .env, then `nbasq login --headed`).
 To get the latest code later:  git pull && pip install -e .
 MSG

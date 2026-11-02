@@ -24,9 +24,10 @@ from typing import Callable, Iterable, Optional
 from . import analysis, db, picks
 from .collect import collect, in_season
 from .config import Settings
+from .league import current
 from .report import write_pages
 
-DAILY_LABEL = "com.cbbsq.daily"
+DAILY_LABEL = "com.cbbsq.daily"  # college basketball's labels; each league has its own (league.py)
 SERVE_LABEL = "com.cbbsq.serve"
 DEFAULT_TIMES = ("08:00", "17:00")  # morning: results and the day's first lines; evening: refreshed lines
 
@@ -43,13 +44,16 @@ def notify(title: str, message: str) -> None:
     subprocess.run(["osascript", "-e", script], check=False, capture_output=True)
 
 
-def run_daily(settings: Settings, *, today: Optional[date] = None, out: Path = Path("reports/dashboard.html"),
+def run_daily(settings: Settings, *, today: Optional[date] = None, out: Optional[Path] = None,
               headless: bool = True, force: bool = False, log: Callable[[str], None] = print) -> int:
     """Yesterday's final scores (grades yesterday's picks), today's games and lines (saves today's picks),
-    then both pages. Off-season days (May-October) are skipped unless ``force``. Returns 0 if all went well."""
+    then both pages. Off-season days (May-October for college, July-September for the NBA) are skipped
+    unless ``force``. Returns 0 if all went well."""
+    lg = current()
     today = today or date.today()
+    out = Path(out) if out else lg.dashboard
     if not force and not in_season(today):
-        log(f"{today}: off-season, nothing to do (the season runs November to April).")
+        log(f"{today}: off-season, nothing to do (the season runs {lg.season_text}).")
         return 0
     problems = 0
     try:
@@ -59,7 +63,7 @@ def run_daily(settings: Settings, *, today: Optional[date] = None, out: Path = P
     except Exception as exc:  # e.g. the login expired: still rebuild the pages from what we have
         problems += 1
         log(f"Collecting failed: {exc}")
-        notify("CBB Shot Quality", f"Daily update could not collect: {str(exc)[:120]}")
+        notify(lg.title, f"Daily update could not collect: {str(exc)[:120]}")
     conn = db.connect(settings.db_path)
     new, graded = picks.update(conn, today=today)
     tg = analysis.load_team_games(conn)
@@ -67,7 +71,7 @@ def run_daily(settings: Settings, *, today: Optional[date] = None, out: Path = P
     conn.close()
     log(f"Picks: {new} new, {graded} graded. Pages: {pages['spread']} and {pages['total']}")
     if problems:
-        notify("CBB Shot Quality", "Daily update finished with problems - see data/daily.log")
+        notify(lg.title, f"Daily update finished with problems - see {lg.log_path}")
     return 1 if problems else 0
 
 
@@ -120,16 +124,17 @@ def install_schedule(env_file: Path, *, times: Iterable[str] = DEFAULT_TIMES, se
                      workdir: Optional[Path] = None, log: Callable[[str], None] = print) -> list[Path]:
     """Install (or replace) the daily job, and optionally the always-on web server, for this user."""
     if sys.platform != "darwin":
-        raise RuntimeError("`cbbsq schedule` sets up macOS background jobs. On Linux use cron "
+        raise RuntimeError(f"`{current().command} schedule` sets up macOS background jobs. On Linux use cron "
                            "(see the README); on Windows, Task Scheduler.")
+    lg = current()
     workdir = (workdir or Path.cwd()).resolve()
-    (workdir / "data").mkdir(exist_ok=True)
-    base = [sys.executable, "-m", "cbbsq.cli", "--env", str(Path(env_file).resolve())]
-    jobs = [(DAILY_LABEL, launchd_plist(DAILY_LABEL, base + ["daily"], workdir, workdir / "data" / "daily.log",
-                                        times=list(times)))]
+    (workdir / lg.data_dir).mkdir(parents=True, exist_ok=True)
+    base = [sys.executable, "-m", "cbbsq.cli", "--env", str(Path(env_file).resolve()), "--league", lg.key]
+    jobs = [(lg.daily_label, launchd_plist(lg.daily_label, base + ["daily"], workdir, workdir / lg.log_path,
+                                           times=list(times)))]
     if serve:
-        jobs.append((SERVE_LABEL, launchd_plist(SERVE_LABEL, base + ["serve"], workdir, workdir / "data" / "serve.log",
-                                                keep_alive=True)))
+        jobs.append((lg.serve_label, launchd_plist(lg.serve_label, base + ["serve"], workdir,
+                                                   workdir / lg.data_dir / "serve.log", keep_alive=True)))
     _agents_dir().mkdir(parents=True, exist_ok=True)
     written = []
     for label, content in jobs:
@@ -142,7 +147,7 @@ def install_schedule(env_file: Path, *, times: Iterable[str] = DEFAULT_TIMES, se
 
 
 def remove_schedule(log: Callable[[str], None] = print) -> None:
-    for label in (DAILY_LABEL, SERVE_LABEL):
+    for label in (current().daily_label, current().serve_label):
         path = _agents_dir() / f"{label}.plist"
         if sys.platform == "darwin":
             _launchctl("bootout", f"gui/{os.getuid()}/{label}")
@@ -153,16 +158,18 @@ def remove_schedule(log: Callable[[str], None] = print) -> None:
 
 # ------------------------------------------------------------------ web server
 def ensure_password(settings: Settings, env_file: Path) -> str:
-    """The server's password: CBBSQ_SERVE_PASSWORD from .env, or a new random one saved there."""
+    """The server's password: CBBSQ_SERVE_PASSWORD (NBASQ_ for the NBA) from .env, or a new random one saved there."""
     if settings.serve_password:
         return settings.serve_password
     password = secrets.token_urlsafe(9)
     env_file = Path(env_file)
     existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
     sep = "" if not existing or existing.endswith("\n") else "\n"
-    env_file.write_text(existing + sep + f"\n# Password for `cbbsq serve` (any username)\nCBBSQ_SERVE_PASSWORD={password}\n",
+    lg = current()
+    var = f"{lg.env_prefix}SERVE_PASSWORD"
+    env_file.write_text(existing + sep + f"\n# Password for `{lg.command} serve` (any username)\n{var}={password}\n",
                         encoding="utf-8")
-    os.environ["CBBSQ_SERVE_PASSWORD"] = password
+    os.environ[var] = password
     return password
 
 
@@ -184,7 +191,7 @@ class _Handler(SimpleHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (http.server naming)
         if not self._authorized():
             self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="CBB Shot Quality"')
+            self.send_header("WWW-Authenticate", f'Basic realm="{current().title}"')
             self.send_header("Content-Length", "0")
             self.end_headers()
             return

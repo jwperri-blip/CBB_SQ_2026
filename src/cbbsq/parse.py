@@ -46,9 +46,10 @@ _LINE_RE = re.compile(
 
 
 def season_for(d: date) -> int:
-    """College basketball season label = the calendar year the season ends in.
+    """Season label = the calendar year the season ends in (both leagues).
 
-    Games from November 2025 through April 2026 belong to season 2026.
+    College games from November 2025 through April 2026, and NBA games from October 2025 through
+    June 2026, belong to season 2026.
     """
     return d.year + 1 if d.month >= 7 else d.year
 
@@ -108,6 +109,10 @@ def _team_letters(name: str) -> str:
 
 def _abbr_score(abbr: str, team: str) -> int:
     """How plausibly ``abbr`` (e.g. "BOS") abbreviates ``team`` ("Boston U. Terriers")."""
+    from .league import current, nba_team_match
+
+    if current().key == "nba" and nba_team_match(abbr, team):
+        return 4
     abbr = re.sub(r"[^A-Z]", "", abbr.upper())
     words = [re.sub(r"[^A-Z]", "", w.upper()) for w in team.split()]
     words = [w for w in words if w]
